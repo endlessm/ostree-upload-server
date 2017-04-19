@@ -1,7 +1,9 @@
 #!/usr/bin/env python2
 
+import atexit
 import os
 import tempfile
+from time import time
 
 from gevent import Greenlet
 from gevent import sleep as gsleep
@@ -25,6 +27,7 @@ def worker(queue, quit):
             print("processing task " + task.name)
             sub = Popen(["flatpak build-import-bundle repo " + task.data], stdout=PIPE, shell=True)
             out, err = sub.communicate()
+            os.unlink(task.data)
             task.set_state(TaskState.Completed)
             queue.task_done()
             print("completed task " + task.name + " with return code " + str(sub.returncode))
@@ -78,7 +81,9 @@ class TaskList:
 
 
 app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = tempfile.mkdtemp("upload")
+tempdir = tempfile.mkdtemp("upload")
+atexit.register(os.rmdir, tempdir)
+app.config["UPLOAD_FOLDER"] = tempdir
 
 task_list = TaskList()
 
@@ -107,18 +112,27 @@ def upload_bundle():
         task_list.add_task(Task(upload.filename, real_name))
         return "task added\n"
 
+class Workers:
+    def __init__(self):
+        self.workers = []
+        self.quit_workers = Event()
+    def start(self, task_list, worker_func, worker_count=4):
+        for i in range(worker_count):
+            w = Greenlet.spawn(worker_func, task_list.get_queue(), self.quit_workers)
+            self.workers.append(w)
+    def stop(self):
+        self.quit_workers.set()
+        for w in self.workers:
+            w.join()
 
 if __name__=='__main__':
     print("Starting server on %d..." % PORT)
 
     # TODO: Add argparse for these settings
     worker_count = 4
-    workers = []
 
-    quit_workers = Event()
-    for i in range(worker_count):
-        w = Greenlet.spawn(worker, task_list.get_queue(), quit_workers)
-        workers.append(w)
+    workers = Workers()
+    workers.start(task_list, worker)
 
     http_server = WSGIServer(('', PORT), app)
     http_server.start()
@@ -137,6 +151,4 @@ if __name__=='__main__':
 
     http_server.stop()
 
-    quit_workers.set()
-    for w in workers:
-        w.join()
+    workers.stop()
