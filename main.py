@@ -20,10 +20,11 @@ def worker(queue, quit):
             task = queue.get(timeout=1)
             task.set_state(TaskState.Processing)
             print("processing task " + task.name)
-            gevent.sleep(5)
+            sub = Popen(["flatpak build-import-bundle repo " + task.data], stdout=PIPE, shell=True)
+            out, err = sub.communicate()
             task.set_state(TaskState.Completed)
             queue.task_done()
-            print("completed task " + task.name)
+            print("completed task " + task.name + " with return code " + str(sub.returncode))
             count += 1
         except Empty:
             pass
