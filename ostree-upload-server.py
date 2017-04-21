@@ -15,6 +15,7 @@ from flask import Flask, jsonify, request, render_template, send_from_directory
 PORT = 5000
 
 
+# TODO: Turn this into a class
 def worker(queue, quit):
     count = 0
     while not quit.is_set():
@@ -44,15 +45,19 @@ class Task:
         self.data = data
         self.state = TaskState.Pending
         self.state_change = Event()
+
     def set_state(self, newstate):
         self.state = newstate
         self.state_change.set()
         gsleep(0) # wake up anyone waiting
         self.state_change.clear()
+
     def get_state(self):
         return self.state
+
     def get_id(self):
         return self.task_id
+
     def wait_for_state_change(self, timeout=None):
         return self.state_change.wait(timeout)
 
@@ -60,19 +65,24 @@ class TaskList:
     def __init__(self):
         self.queue = JoinableQueue()
         self.all_tasks = {}
+
     def add_task(self, task):
         self.all_tasks[task.get_id()] = task
         self.queue.put(task)
+
     def get_queue(self):
         return self.queue
+
     def join(self, timeout=None):
         return self.queue.join(timeout)
+
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = tempfile.mkdtemp("upload")
 
 task_list = TaskList()
 
+# TODO: Turn server into an isolated class
 @app.route("/")
 def main():
     """
@@ -99,6 +109,9 @@ def upload_bundle():
 
 
 if __name__=='__main__':
+    print("Starting server on %d..." % PORT)
+
+    # TODO: Add argparse for these settings
     worker_count = 4
     workers = []
 
@@ -110,6 +123,8 @@ if __name__=='__main__':
     http_server = WSGIServer(('', PORT), app)
     http_server.start()
 
+    print("Server started on %s" % PORT)
+
     # loop until interrupted
     while True:
         try:
@@ -117,6 +132,8 @@ if __name__=='__main__':
             task_list.join()
         except (KeyboardInterrupt, SystemExit):
             break
+
+    print("Cleaning up resources...")
 
     http_server.stop()
 
