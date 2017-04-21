@@ -1,19 +1,17 @@
 #!/usr/bin/env python2
 
-# for worker processes
-import gevent
+import os
+import tempfile
+
 from gevent import Greenlet
+from gevent import sleep as gsleep
 from gevent.queue import JoinableQueue, Empty
 from gevent.event import Event
+from gevent.pywsgi import WSGIServer
 from gevent.subprocess import Popen, PIPE
 
-# for gevent webserver
-from gevent.pywsgi import WSGIServer
-
-# for flask
 from flask import Flask, jsonify, request, render_template, send_from_directory
-import tempfile
-import os
+
 
 def worker(queue, quit):
     count = 0
@@ -47,7 +45,7 @@ class Task:
     def set_state(self, newstate):
         self.state = newstate
         self.state_change.set()
-        gevent.sleep(0) # wake up anyone waiting
+        gsleep(0) # wake up anyone waiting
         self.state_change.clear()
     def get_state(self):
         return self.state
@@ -114,7 +112,7 @@ if __name__=='__main__':
     # loop until interrupted
     while True:
         try:
-            gevent.sleep(5)
+            gsleep(5)
             task_list.join()
         except (KeyboardInterrupt, SystemExit):
             break
