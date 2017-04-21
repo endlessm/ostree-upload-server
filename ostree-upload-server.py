@@ -12,6 +12,8 @@ from gevent.subprocess import Popen, PIPE
 
 from flask import Flask, jsonify, request, render_template, send_from_directory
 
+PORT = 5000
+
 
 def worker(queue, quit):
     count = 0
@@ -68,7 +70,6 @@ class TaskList:
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = tempfile.mkdtemp("upload")
-PORT = 5000
 
 task_list = TaskList()
 
