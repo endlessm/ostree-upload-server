@@ -79,12 +79,25 @@ class TaskList:
     def join(self, timeout=None):
         return self.queue.join(timeout)
 
+class Counter:
+    def __init__(self):
+        self.count = 0
+
+    def __enter__(self):
+        self.count += 1
+        print("counter now " + str(self.count))
+        return self.count
+
+    def __exit__(self, type, value, traceback):
+        self.count -= 1
+        print("counter now " + str(self.count))
 
 app = Flask(__name__)
 tempdir = tempfile.mkdtemp("upload")
 atexit.register(os.rmdir, tempdir)
 app.config["UPLOAD_FOLDER"] = tempdir
 
+active_upload_counter = Counter()
 task_list = TaskList()
 
 # TODO: Turn server into an isolated class
@@ -101,16 +114,19 @@ def upload_bundle():
     Upload a flatpak bundle
     """
     if request.method == "POST":
-        if 'file' not in request.files:
-            return "no file in POST\n"
-        upload = request.files['file']
-        if upload.filename == "":
-            return "no filename in upload\n"
-        (f, real_name) = tempfile.mkstemp(dir=app.config['UPLOAD_FOLDER'])
-        os.close(f)
-        upload.save(real_name)
-        task_list.add_task(Task(upload.filename, real_name))
-        return "task added\n"
+        print("/upload: POST request start")
+        with active_upload_counter:
+            if 'file' not in request.files:
+                return "no file in POST\n"
+            upload = request.files['file']
+            if upload.filename == "":
+                return "no filename in upload\n"
+            (f, real_name) = tempfile.mkstemp(dir=app.config['UPLOAD_FOLDER'])
+            os.close(f)
+            upload.save(real_name)
+            task_list.add_task(Task(upload.filename, real_name))
+            print("/upload: POST request completed for " + upload.filename)
+            return "task added\n"
 
 class Workers:
     def __init__(self):
@@ -144,6 +160,7 @@ if __name__=='__main__':
         try:
             gsleep(5)
             task_list.join()
+            print("task queue empty, " + str(active_upload_counter.count) + " uploads ongoing")
         except (KeyboardInterrupt, SystemExit):
             break
 
