@@ -15,11 +15,14 @@ from gevent.subprocess import Popen, PIPE
 from flask import Flask, jsonify, request, render_template, send_from_directory
 
 PORT = 5000
+MAINTENANCE_WAIT = 10
 
 
 # TODO: Turn this into a class
 def worker(queue, quit):
+    global latest_task_complete
     count = 0
+    print("worker started")
     while not quit.is_set():
         try:
             task = queue.get(timeout=1)
@@ -31,6 +34,7 @@ def worker(queue, quit):
             task.set_state(TaskState.Completed)
             queue.task_done()
             print("completed task " + task.name + " with return code " + str(sub.returncode))
+            latest_task_complete = time()
             count += 1
         except Empty:
             pass
@@ -97,6 +101,8 @@ tempdir = tempfile.mkdtemp("upload")
 atexit.register(os.rmdir, tempdir)
 app.config["UPLOAD_FOLDER"] = tempdir
 
+latest_task_complete = time()
+latest_maintenance_complete = time()
 active_upload_counter = Counter()
 task_list = TaskList()
 
@@ -140,6 +146,7 @@ class Workers:
         self.quit_workers.set()
         for w in self.workers:
             w.join()
+        self.quit_workers.clear()
 
 if __name__=='__main__':
     print("Starting server on %d..." % PORT)
@@ -161,6 +168,21 @@ if __name__=='__main__':
             gsleep(5)
             task_list.join()
             print("task queue empty, " + str(active_upload_counter.count) + " uploads ongoing")
+            time_since_maintenance = time() - latest_maintenance_complete
+            time_since_task = time() - latest_task_complete
+            print("{:.1f} since last task, {:.1f} since last maintenance".format(
+                        time_since_task,
+                        time_since_maintenance))
+            if time_since_maintenance > time_since_task:
+                # uploads have been processed since last maintenance
+                print("maintenance needed")
+                if time_since_task >= MAINTENANCE_WAIT:
+                    print("idle, do maintenance")
+                    workers.stop()
+                    ##
+                    latest_maintenance_complete = time()
+                    workers.start(task_list, worker)
+
         except (KeyboardInterrupt, SystemExit):
             break
 
