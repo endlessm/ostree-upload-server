@@ -28,7 +28,9 @@ def worker(queue, quit):
             task = queue.get(timeout=1)
             task.set_state(TaskState.Processing)
             print("processing task " + task.name)
-            sub = Popen(["flatpak build-import-bundle repo " + task.data], stdout=PIPE, shell=True)
+            # TODO: don't use shell
+            sub = Popen(["flatpak build-import-bundle --no-update-summary repo " + task.data],
+                    stdout=PIPE, shell=True)
             out, err = sub.communicate()
             os.unlink(task.data)
             task.set_state(TaskState.Completed)
@@ -179,7 +181,13 @@ if __name__=='__main__':
                 if time_since_task >= MAINTENANCE_WAIT:
                     print("idle, do maintenance")
                     workers.stop()
-                    ##
+
+                    # TODO: don't use shell
+                    sub = Popen(["flatpak build-update-repo --generate-static-deltas --prune repo"],
+                            stdout=PIPE, shell=True)
+                    out, err = sub.communicate()
+                    print("completed maintenance with return code " + str(sub.returncode))
+
                     latest_maintenance_complete = time()
                     workers.start(task_list, worker)
 
