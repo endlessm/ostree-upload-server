@@ -1,5 +1,6 @@
 #!/usr/bin/env python2
 
+import argparse
 import atexit
 import os
 import tempfile
@@ -14,7 +15,6 @@ from gevent.subprocess import Popen, PIPE
 
 from flask import Flask, jsonify, request, render_template, send_from_directory
 
-PORT = 5000
 MAINTENANCE_WAIT = 10
 
 
@@ -151,18 +151,22 @@ class Workers:
         self.quit_workers.clear()
 
 if __name__=='__main__':
-    print("Starting server on %d..." % PORT)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-w", "--workers", type=int, default=4,
+                        help="number of uploads to process in parallel")
+    parser.add_argument("-p", "--port", type=int, default=5000,
+                        help="HTTP server listen port")
+    args = parser.parse_args()
 
-    # TODO: Add argparse for these settings
-    worker_count = 4
+    print("Starting server on %d..." % args.port)
 
     workers = Workers()
-    workers.start(task_list, worker)
+    workers.start(task_list, worker, args.workers)
 
-    http_server = WSGIServer(('', PORT), app)
+    http_server = WSGIServer(('', args.port), app)
     http_server.start()
 
-    print("Server started on %s" % PORT)
+    print("Server started on %s" % args.port)
 
     # loop until interrupted
     while True:
@@ -189,7 +193,7 @@ if __name__=='__main__':
                     print("completed maintenance with return code " + str(sub.returncode))
 
                     latest_maintenance_complete = time()
-                    workers.start(task_list, worker)
+                    workers.start(task_list, worker, args.workers)
 
         except (KeyboardInterrupt, SystemExit):
             break
