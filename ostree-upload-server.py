@@ -8,6 +8,7 @@ from time import time
 
 from gevent import Greenlet
 from gevent import sleep as gsleep
+from gevent.lock import BoundedSemaphore
 from gevent.queue import JoinableQueue, Empty
 from gevent.event import Event
 from gevent.pywsgi import WSGIServer
@@ -97,15 +98,18 @@ class TaskList:
 class Counter:
     def __init__(self):
         self.count = 0
+        self.count_lock = BoundedSemaphore(1)
 
     def __enter__(self):
-        self.count += 1
-        print("counter now " + str(self.count))
-        return self.count
+        with self.count_lock:
+            self.count += 1
+            print("counter now " + str(self.count))
+            return self.count
 
     def __exit__(self, type, value, traceback):
-        self.count -= 1
-        print("counter now " + str(self.count))
+        with self.count_lock:
+            self.count -= 1
+            print("counter now " + str(self.count))
 
 app = Flask(__name__)
 tempdir = tempfile.mkdtemp("upload")
