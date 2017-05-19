@@ -11,7 +11,7 @@ from gevent import sleep as gsleep
 from gevent.queue import JoinableQueue, Empty
 from gevent.event import Event
 from gevent.pywsgi import WSGIServer
-from gevent.subprocess import Popen, PIPE
+from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 from flask import Flask, jsonify, request, render_template, send_from_directory
 
@@ -28,14 +28,23 @@ def worker(queue, quit):
             task = queue.get(timeout=1)
             task.set_state(TaskState.Processing)
             print("processing task " + task.name)
-            # TODO: don't use shell
-            sub = Popen(["flatpak build-import-bundle --no-update-summary repo " + task.data],
-                    stdout=PIPE, shell=True)
-            out, err = sub.communicate()
-            os.unlink(task.data)
-            task.set_state(TaskState.Completed)
+            try:
+                output = check_output(["flatpak",
+                                       "build-import-bundle",
+                                       "--no-update-summary",
+                                       "repo",
+                                       task.data],
+                                      stderr=STDOUT)
+                os.unlink(task.data)
+                task.set_state(TaskState.Completed)
+                print("completed task " + task.name)
+            except CalledProcessError as e:
+                # TODO: failed tasks should be handled - for now,
+                # don't delete the upload
+                task.set_state(TaskState.Failed)
+                print("failed task " + task.name)
+                print("task output: " + e.output)
             queue.task_done()
-            print("completed task " + task.name + " with return code " + str(sub.returncode))
             latest_task_complete = time()
             count += 1
         except Empty:
@@ -186,11 +195,16 @@ if __name__=='__main__':
                     print("idle, do maintenance")
                     workers.stop()
 
-                    # TODO: don't use shell
-                    sub = Popen(["flatpak build-update-repo --generate-static-deltas --prune repo"],
-                            stdout=PIPE, shell=True)
-                    out, err = sub.communicate()
-                    print("completed maintenance with return code " + str(sub.returncode))
+                    try:
+                        output = check_output(["flatpak",
+                                               "build-update-repo",
+                                               "--generate-static-deltas",
+                                               "--prune",
+                                               "repo"],
+                                              stderr=STDOUT)
+                        print("completed maintenance: " + output)
+                    except CalledProcessError as e:
+                        print("failed maintenance: " + e.output)
 
                     latest_maintenance_complete = time()
                     workers.start(task_list, worker, args.workers)
