@@ -151,8 +151,10 @@ class Workers:
         self.quit_workers = Event()
     def start(self, task_list, worker_func, worker_count=4):
         for i in range(worker_count):
-            w = Greenlet.spawn(worker_func, task_list.get_queue(), self.quit_workers)
-            self.workers.append(w)
+            worker = Greenlet.spawn(worker_func,
+                                    task_list.get_queue(),
+                                    self.quit_workers)
+            self.workers.append(worker)
     def stop(self):
         self.quit_workers.set()
         for w in self.workers:
