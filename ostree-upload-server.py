@@ -2,6 +2,7 @@
 
 import argparse
 import atexit
+import logging
 import os
 import tempfile
 from time import time
@@ -23,12 +24,12 @@ MAINTENANCE_WAIT = 10
 def worker(queue, quit):
     global latest_task_complete
     count = 0
-    print("worker started")
+    logging.debug("worker started")
     while not quit.is_set():
         try:
             task = queue.get(timeout=1)
             task.set_state(TaskState.Processing)
-            print("processing task " + task.name)
+            logging.info("processing task " + task.name)
             try:
                 output = check_output(["flatpak",
                                        "build-import-bundle",
@@ -38,19 +39,19 @@ def worker(queue, quit):
                                       stderr=STDOUT)
                 os.unlink(task.data)
                 task.set_state(TaskState.Completed)
-                print("completed task " + task.name)
+                logging.info("completed task " + task.name)
             except CalledProcessError as e:
                 # TODO: failed tasks should be handled - for now,
                 # don't delete the upload
                 task.set_state(TaskState.Failed)
-                print("failed task " + task.name)
-                print("task output: " + e.output)
+                logging.error("failed task " + task.name)
+                logging.error("task output: " + e.output)
             queue.task_done()
             latest_task_complete = time()
             count += 1
         except Empty:
             pass
-    print("worker shutdown, " + str(count) + " items processed")
+    logging.info("worker shutdown, " + str(count) + " items processed")
 
 class TaskState:
     Pending, Processing, Completed, Failed = range(4)
@@ -103,13 +104,13 @@ class Counter:
     def __enter__(self):
         with self.count_lock:
             self.count += 1
-            print("counter now " + str(self.count))
+            logging.debug("counter now " + str(self.count))
             return self.count
 
     def __exit__(self, type, value, traceback):
         with self.count_lock:
             self.count -= 1
-            print("counter now " + str(self.count))
+            logging.debug("counter now " + str(self.count))
 
 app = Flask(__name__)
 tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
@@ -135,7 +136,7 @@ def upload_bundle():
     Upload a flatpak bundle
     """
     if request.method == "POST":
-        print("/upload: POST request start")
+        logging.debug("/upload: POST request start")
         with active_upload_counter:
             if 'file' not in request.files:
                 return "no file in POST\n", 400
@@ -146,7 +147,7 @@ def upload_bundle():
             os.close(f)
             upload.save(real_name)
             task_list.add_task(Task(upload.filename, real_name))
-            print("/upload: POST request completed for " + upload.filename)
+            logging.debug("/upload: POST request completed for " + upload.filename)
             return "task added\n"
 
 class Workers:
@@ -171,9 +172,18 @@ if __name__=='__main__':
                         help="number of uploads to process in parallel")
     parser.add_argument("-p", "--port", type=int, default=5000,
                         help="HTTP server listen port")
+    parser.add_argument("-v", "--verbose", help="output informational messages",
+                    action="store_true")
+    parser.add_argument("-d", "--debug", help="output debug messages",
+                    action="store_true")
     args = parser.parse_args()
 
-    print("Starting server on %d..." % args.port)
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    elif args.verbose:
+        logging.basicConfig(level=logging.INFO)
+
+    logging.info("Starting server on %d..." % args.port)
 
     workers = Workers()
     workers.start(task_list, worker, args.workers)
@@ -181,24 +191,24 @@ if __name__=='__main__':
     http_server = WSGIServer(('', args.port), app)
     http_server.start()
 
-    print("Server started on %s" % args.port)
+    logging.info("Server started on %s" % args.port)
 
     # loop until interrupted
     while True:
         try:
             gsleep(5)
             task_list.join()
-            print("task queue empty, " + str(active_upload_counter.count) + " uploads ongoing")
+            logging.debug("task queue empty, " + str(active_upload_counter.count) + " uploads ongoing")
             time_since_maintenance = time() - latest_maintenance_complete
             time_since_task = time() - latest_task_complete
-            print("{:.1f} since last task, {:.1f} since last maintenance".format(
+            logging.debug("{:.1f} since last task, {:.1f} since last maintenance".format(
                         time_since_task,
                         time_since_maintenance))
             if time_since_maintenance > time_since_task:
                 # uploads have been processed since last maintenance
-                print("maintenance needed")
+                logging.debug("maintenance needed")
                 if time_since_task >= MAINTENANCE_WAIT:
-                    print("idle, do maintenance")
+                    logging.debug("idle, do maintenance")
                     workers.stop()
 
                     try:
@@ -208,9 +218,9 @@ if __name__=='__main__':
                                                "--prune",
                                                "repo"],
                                               stderr=STDOUT)
-                        print("completed maintenance: " + output)
+                        logging.info("completed maintenance: " + output)
                     except CalledProcessError as e:
-                        print("failed maintenance: " + e.output)
+                        logging.error("failed maintenance: " + e.output)
 
                     latest_maintenance_complete = time()
                     workers.start(task_list, worker, args.workers)
@@ -218,7 +228,7 @@ if __name__=='__main__':
         except (KeyboardInterrupt, SystemExit):
             break
 
-    print("Cleaning up resources...")
+    logging.info("Cleaning up resources...")
 
     http_server.stop()
 
