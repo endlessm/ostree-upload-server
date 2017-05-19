@@ -112,7 +112,7 @@ class Counter:
             print("counter now " + str(self.count))
 
 app = Flask(__name__)
-tempdir = tempfile.mkdtemp("upload")
+tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
 atexit.register(os.rmdir, tempdir)
 app.config["UPLOAD_FOLDER"] = tempdir
 
