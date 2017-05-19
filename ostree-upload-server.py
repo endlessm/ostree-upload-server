@@ -138,10 +138,10 @@ def upload_bundle():
         print("/upload: POST request start")
         with active_upload_counter:
             if 'file' not in request.files:
-                return "no file in POST\n"
+                return "no file in POST\n", 400
             upload = request.files['file']
             if upload.filename == "":
-                return "no filename in upload\n"
+                return "no filename in upload\n", 400
             (f, real_name) = tempfile.mkstemp(dir=app.config['UPLOAD_FOLDER'])
             os.close(f)
             upload.save(real_name)
