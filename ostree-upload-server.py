@@ -112,43 +112,36 @@ class Counter:
             self.count -= 1
             logging.debug("counter now " + str(self.count))
 
-app = Flask(__name__)
-tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
-atexit.register(os.rmdir, tempdir)
-app.config["UPLOAD_FOLDER"] = tempdir
+class UploadWebApp(Flask):
+    def __init__(self, import_name):
+        super(UploadWebApp, self).__init__(import_name)
+        self.route("/")(self.index)
+        self.route("/upload", methods=["GET", "POST"])(self.upload)
 
-latest_task_complete = time()
-latest_maintenance_complete = time()
-active_upload_counter = Counter()
-task_list = TaskList()
+    def index(self):
+        return "<a href='{0}'>upload</a>".format(flask.url_for("upload"))
 
-# TODO: Turn server into an isolated class
-@app.route("/")
-def main():
-    """
-    Main web site entry point.
-    """
-    return "hello world"
-
-@app.route("/upload", methods=["GET", "POST"])
-def upload_bundle():
-    """
-    Upload a flatpak bundle
-    """
-    if request.method == "POST":
-        logging.debug("/upload: POST request start")
-        with active_upload_counter:
-            if 'file' not in request.files:
-                return "no file in POST\n", 400
-            upload = request.files['file']
-            if upload.filename == "":
-                return "no filename in upload\n", 400
-            (f, real_name) = tempfile.mkstemp(dir=app.config['UPLOAD_FOLDER'])
-            os.close(f)
-            upload.save(real_name)
-            task_list.add_task(Task(upload.filename, real_name))
-            logging.debug("/upload: POST request completed for " + upload.filename)
-            return "task added\n"
+    def upload(self):
+        """
+        Upload a flatpak bundle
+        """
+        if request.method == "POST":
+            logging.debug("/upload: POST request start")
+            # TODO: active_upload_counter should be a member
+            with active_upload_counter:
+                if 'file' not in request.files:
+                    return "no file in POST\n", 400
+                upload = request.files['file']
+                if upload.filename == "":
+                    return "no filename in upload\n", 400
+                # TODO: tempdir should be a member
+                (f, real_name) = tempfile.mkstemp(dir=tempdir)
+                os.close(f)
+                upload.save(real_name)
+                # TODO: task_list reference should be a member
+                task_list.add_task(Task(upload.filename, real_name))
+                logging.debug("/upload: POST request completed for " + upload.filename)
+                return "task added\n"
 
 class Workers:
     def __init__(self):
@@ -167,6 +160,14 @@ class Workers:
         self.quit_workers.clear()
 
 if __name__=='__main__':
+    tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
+    atexit.register(os.rmdir, tempdir)
+
+    latest_task_complete = time()
+    latest_maintenance_complete = time()
+    active_upload_counter = Counter()
+    task_list = TaskList()
+
     parser = argparse.ArgumentParser()
     parser.add_argument("-w", "--workers", type=int, default=4,
                         help="number of uploads to process in parallel")
@@ -188,7 +189,7 @@ if __name__=='__main__':
     workers = Workers()
     workers.start(task_list, worker, args.workers)
 
-    http_server = WSGIServer(('', args.port), app)
+    http_server = WSGIServer(('', args.port), UploadWebApp(__name__))
     http_server.start()
 
     logging.info("Server started on %s" % args.port)
