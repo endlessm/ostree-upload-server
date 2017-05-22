@@ -5,22 +5,26 @@ import atexit
 import logging
 import os
 import tempfile
+import threading
+
+from functools import partial
 from time import time
 
-from gevent import Greenlet
+from gevent import Greenlet, queue
 from gevent import sleep as gsleep
-from gevent.lock import BoundedSemaphore
-from gevent.queue import JoinableQueue, Empty
 from gevent.event import Event
 from gevent.pywsgi import WSGIServer
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 from flask import Flask, jsonify, request, render_template, send_from_directory, url_for
 
+
 MAINTENANCE_WAIT = 10
+
 
 class TaskState:
     Pending, Processing, Completed, Failed = range(4)
+
 
 class Task:
     _next_task_id = 0
@@ -54,7 +58,7 @@ class Task:
 
 class TaskList:
     def __init__(self):
-        self._queue = JoinableQueue()
+        self._queue = queue.JoinableQueue()
         self._all_tasks = {}
 
     def add_task(self, task):
@@ -67,10 +71,11 @@ class TaskList:
     def join(self, timeout=None):
         return self._queue.join(timeout)
 
-class Counter:
+
+class ThreadsafeCounter:
     def __init__(self):
         self._count = 0
-        self._count_lock = BoundedSemaphore(1)
+        self._count_lock = threading.Lock()
 
     def __enter__(self):
         with self._count_lock:
@@ -86,11 +91,18 @@ class Counter:
     def get_count(self):
         return self._count
 
+
 class UploadWebApp(Flask):
-    def __init__(self, import_name):
+    def __init__(self, import_name, upload_counter, webapp_callback):
         super(UploadWebApp, self).__init__(import_name)
+        self._upload_counter = upload_counter
+        self._webapp_callback = webapp_callback
+
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
+
+        self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
+        atexit.register(os.rmdir, self._tempdir)
 
     def index(self):
         return "<a href='{0}'>upload</a>".format(url_for("upload"))
@@ -101,56 +113,68 @@ class UploadWebApp(Flask):
         """
         if request.method == "POST":
             logging.debug("/upload: POST request start")
+
             # TODO: active_upload_counter should be a member
-            with active_upload_counter:
+            with self._upload_counter:
                 if 'file' not in request.files:
                     return "no file in POST\n", 400
+
                 upload = request.files['file']
                 if upload.filename == "":
                     return "no filename in upload\n", 400
+
                 # TODO: tempdir should be a member
-                (f, real_name) = tempfile.mkstemp(dir=tempdir)
+                (f, real_name) = tempfile.mkstemp(dir=self._tempdir)
                 os.close(f)
                 upload.save(real_name)
+
                 # TODO: task_list reference should be a member
-                task_list.add_task(Task(upload.filename, real_name))
+                self._webapp_callback(upload.filename, real_name)
                 logging.debug("/upload: POST request completed for " + upload.filename)
+
                 return "task added\n"
         else:
             return "only POST method supported\n", 400
 
+
 class Workers:
-    def __init__(self):
+    def __init__(self, repo, completed_callback):
         self._workers = []
-        self._quit_workers = Event()
+        self._repo = repo
+        self._completed_callback = completed_callback
 
     def start(self, task_list, worker_count=4):
-        for i in range(worker_count):
+        self._exit_event = Event()
+        for _ in range(worker_count):
             worker = Greenlet.spawn(self._work,
                                     task_list.get_queue(),
-                                    self._quit_workers)
+                                    self._exit_event)
             self._workers.append(worker)
 
     def stop(self):
-        self._quit_workers.set()
+        self._exit_event.set()
+
         for worker in self._workers:
             worker.join()
-        self._quit_workers.clear()
 
-    def _work(self, queue, quit):
+        self._exit_event.clear()
+
+    def _work(self, task_queue, exit_event):
         global latest_task_complete
+
         count = 0
         logging.debug("worker started")
-        while not quit.is_set():
+
+        while not self._exit_event.is_set():
             try:
-                task = queue.get(timeout=1)
+                task = task_queue.get(timeout=1)
                 task.set_state(TaskState.Processing)
                 logging.info("processing task " + task.get_name())
                 try:
                     output = check_output(["flatpak",
                                            "build-import-bundle",
                                            "--no-update-summary",
-                                           "repo",
+                                           self._repo,
                                            task.get_data()],
                                           stderr=STDOUT)
                     os.unlink(task.get_data())
@@ -162,30 +186,102 @@ class Workers:
                     task.set_state(TaskState.Failed)
                     logging.error("failed task " + task.get_name())
                     logging.error("task output: " + e.output)
-                queue.task_done()
-                latest_task_complete = time()
+
+                task_queue.task_done()
+                self._completed_callback()
+
                 count += 1
-            except Empty:
+            except queue.Empty:
                 pass
+
         logging.info("worker shutdown, " + str(count) + " items processed")
 
 
+class OstreeUploadServer(object):
+    def __init__(self, repo, port, workers):
+        self._repo = repo
+        self._port = port
+        self._workers = workers
+
+    def run(self):
+        # Array since we need to pass by ref
+        latest_task_complete = [time()]
+        latest_maintenance_complete = time()
+        active_upload_counter = ThreadsafeCounter()
+
+        task_list = TaskList()
+
+        logging.info("Starting server on %d..." % self._port)
+
+        logging.debug("task completed callback %s", latest_task_complete);
+
+        def completed_callback(latest_task_complete):
+            logging.debug("task completed callback %s", latest_task_complete);
+            latest_task_complete[:] = [time()]
+
+        workers = Workers(self._repo, partial(completed_callback, latest_task_complete))
+        workers.start(task_list, self._workers)
+
+        def webapp_callback(task_name, filepath):
+            task_list.add_task(Task(task_name, filepath))
+
+        webapp = UploadWebApp(__name__, active_upload_counter, webapp_callback)
+
+        http_server = WSGIServer(('', self._port), webapp)
+        http_server.start()
+
+        logging.info("Server started on %s" % self._port)
+
+        # loop until interrupted
+        while True:
+            try:
+                gsleep(5)
+                task_list.join()
+                logging.debug("task queue empty, " + str(active_upload_counter.get_count()) + " uploads ongoing")
+                time_since_maintenance = time() - latest_maintenance_complete
+                time_since_task = time() - latest_task_complete[0]
+                logging.debug("{:.1f} complete".format(time_since_task))
+                logging.debug("{:.1f} since last task, {:.1f} since last maintenance".format(
+                            time_since_task,
+                            time_since_maintenance))
+                if time_since_maintenance > time_since_task:
+                    # uploads have been processed since last maintenance
+                    logging.debug("maintenance needed")
+                    if time_since_task >= MAINTENANCE_WAIT:
+                        logging.debug("idle, do maintenance")
+                        workers.stop()
+
+                        try:
+                            output = check_output(["flatpak",
+                                                   "build-update-repo",
+                                                   "--generate-static-deltas",
+                                                   "--prune",
+                                                   self._repo],
+                                                  stderr=STDOUT)
+                            logging.info("completed maintenance: " + output)
+                        except CalledProcessError as e:
+                            logging.error("failed maintenance: " + e.output)
+
+                        latest_maintenance_complete = time()
+                        workers.start(task_list, self._workers)
+
+            except (KeyboardInterrupt, SystemExit):
+                break
+
+        logging.info("Cleaning up resources...")
+
+        http_server.stop()
+
+        workers.stop()
+
+
 if __name__=='__main__':
-    tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
-    atexit.register(os.rmdir, tempdir)
-
-    # TODO: these can be made Workers members
-    latest_task_complete = time()
-    latest_maintenance_complete = time()
-    active_upload_counter = Counter()
-
-    task_list = TaskList()
-
     parser = argparse.ArgumentParser()
     parser.add_argument("-w", "--workers", type=int, default=4,
                         help="number of uploads to process in parallel")
     parser.add_argument("-p", "--port", type=int, default=5000,
                         help="HTTP server listen port")
+    parser.add_argument("repo", help="OSTree repository")
     parser.add_argument("-v", "--verbose", help="output informational messages",
                     action="store_true")
     parser.add_argument("-d", "--debug", help="output debug messages",
@@ -199,53 +295,6 @@ if __name__=='__main__':
     else:
         logging.basicConfig(level=logging.INFO)
 
-    logging.info("Starting server on %d..." % args.port)
-
-    workers = Workers()
-    workers.start(task_list, args.workers)
-
-    http_server = WSGIServer(('', args.port), UploadWebApp(__name__))
-    http_server.start()
-
-    logging.info("Server started on %s" % args.port)
-
-    # loop until interrupted
-    while True:
-        try:
-            gsleep(5)
-            task_list.join()
-            logging.debug("task queue empty, " + str(active_upload_counter.get_count()) + " uploads ongoing")
-            time_since_maintenance = time() - latest_maintenance_complete
-            time_since_task = time() - latest_task_complete
-            logging.debug("{:.1f} since last task, {:.1f} since last maintenance".format(
-                        time_since_task,
-                        time_since_maintenance))
-            if time_since_maintenance > time_since_task:
-                # uploads have been processed since last maintenance
-                logging.debug("maintenance needed")
-                if time_since_task >= MAINTENANCE_WAIT:
-                    logging.debug("idle, do maintenance")
-                    workers.stop()
-
-                    try:
-                        output = check_output(["flatpak",
-                                               "build-update-repo",
-                                               "--generate-static-deltas",
-                                               "--prune",
-                                               "repo"],
-                                              stderr=STDOUT)
-                        logging.info("completed maintenance: " + output)
-                    except CalledProcessError as e:
-                        logging.error("failed maintenance: " + e.output)
-
-                    latest_maintenance_complete = time()
-                    workers.start(task_list, args.workers)
-
-        except (KeyboardInterrupt, SystemExit):
-            break
-
-    logging.info("Cleaning up resources...")
-
-    http_server.stop()
-
-    workers.stop()
+    OstreeUploadServer(args.repo,
+                       args.port,
+                       args.workers).run()
