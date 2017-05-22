@@ -19,40 +19,6 @@ from flask import Flask, jsonify, request, render_template, send_from_directory
 
 MAINTENANCE_WAIT = 10
 
-
-# TODO: Turn this into a class
-def worker(queue, quit):
-    global latest_task_complete
-    count = 0
-    logging.debug("worker started")
-    while not quit.is_set():
-        try:
-            task = queue.get(timeout=1)
-            task.set_state(TaskState.Processing)
-            logging.info("processing task " + task.name)
-            try:
-                output = check_output(["flatpak",
-                                       "build-import-bundle",
-                                       "--no-update-summary",
-                                       "repo",
-                                       task.data],
-                                      stderr=STDOUT)
-                os.unlink(task.data)
-                task.set_state(TaskState.Completed)
-                logging.info("completed task " + task.name)
-            except CalledProcessError as e:
-                # TODO: failed tasks should be handled - for now,
-                # don't delete the upload
-                task.set_state(TaskState.Failed)
-                logging.error("failed task " + task.name)
-                logging.error("task output: " + e.output)
-            queue.task_done()
-            latest_task_complete = time()
-            count += 1
-        except Empty:
-            pass
-    logging.info("worker shutdown, " + str(count) + " items processed")
-
 class TaskState:
     Pending, Processing, Completed, Failed = range(4)
 
@@ -147,25 +113,62 @@ class Workers:
     def __init__(self):
         self.workers = []
         self.quit_workers = Event()
-    def start(self, task_list, worker_func, worker_count=4):
+
+    def start(self, task_list, worker_count=4):
         for i in range(worker_count):
-            worker = Greenlet.spawn(worker_func,
+            worker = Greenlet.spawn(self._work,
                                     task_list.get_queue(),
                                     self.quit_workers)
             self.workers.append(worker)
+
     def stop(self):
         self.quit_workers.set()
         for w in self.workers:
             w.join()
         self.quit_workers.clear()
 
+    def _work(self, queue, quit):
+        global latest_task_complete
+        count = 0
+        logging.debug("worker started")
+        while not quit.is_set():
+            try:
+                task = queue.get(timeout=1)
+                task.set_state(TaskState.Processing)
+                logging.info("processing task " + task.name)
+                try:
+                    output = check_output(["flatpak",
+                                           "build-import-bundle",
+                                           "--no-update-summary",
+                                           "repo",
+                                           task.data],
+                                          stderr=STDOUT)
+                    os.unlink(task.data)
+                    task.set_state(TaskState.Completed)
+                    logging.info("completed task " + task.name)
+                except CalledProcessError as e:
+                    # TODO: failed tasks should be handled - for now,
+                    # don't delete the upload
+                    task.set_state(TaskState.Failed)
+                    logging.error("failed task " + task.name)
+                    logging.error("task output: " + e.output)
+                queue.task_done()
+                latest_task_complete = time()
+                count += 1
+            except Empty:
+                pass
+        logging.info("worker shutdown, " + str(count) + " items processed")
+
+
 if __name__=='__main__':
     tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
     atexit.register(os.rmdir, tempdir)
 
+    # TODO: these can be made Workers members
     latest_task_complete = time()
     latest_maintenance_complete = time()
     active_upload_counter = Counter()
+
     task_list = TaskList()
 
     parser = argparse.ArgumentParser()
@@ -187,7 +190,7 @@ if __name__=='__main__':
     logging.info("Starting server on %d..." % args.port)
 
     workers = Workers()
-    workers.start(task_list, worker, args.workers)
+    workers.start(task_list, args.workers)
 
     http_server = WSGIServer(('', args.port), UploadWebApp(__name__))
     http_server.start()
@@ -224,7 +227,7 @@ if __name__=='__main__':
                         logging.error("failed maintenance: " + e.output)
 
                     latest_maintenance_complete = time()
-                    workers.start(task_list, worker, args.workers)
+                    workers.start(task_list, args.workers)
 
         except (KeyboardInterrupt, SystemExit):
             break
