@@ -23,60 +23,68 @@ class TaskState:
     Pending, Processing, Completed, Failed = range(4)
 
 class Task:
-    next_task_id = 0
+    _next_task_id = 0
+
     def __init__(self, name, data):
-        self.task_id = Task.next_task_id
-        Task.next_task_id += 1
-        self.name = name
-        self.data = data
-        self.state = TaskState.Pending
-        self.state_change = Event()
+        self._task_id = Task._next_task_id
+        Task._next_task_id += 1
+        self._name = name
+        self._data = data
+        self._state = TaskState.Pending
+        self._state_change = Event()
 
     def set_state(self, newstate):
-        self.state = newstate
-        self.state_change.set()
+        self._state = newstate
+        self._state_change.set()
         gsleep(0) # wake up anyone waiting
-        self.state_change.clear()
+        self._state_change.clear()
+
+    def get_name(self):
+        return self._name
+
+    def get_data(self):
+        return self._data
 
     def get_state(self):
-        return self.state
+        return self._state
 
     def get_id(self):
-        return self.task_id
+        return self._task_id
 
-    def wait_for_state_change(self, timeout=None):
-        return self.state_change.wait(timeout)
 
 class TaskList:
     def __init__(self):
-        self.queue = JoinableQueue()
-        self.all_tasks = {}
+        self._queue = JoinableQueue()
+        self._all_tasks = {}
 
     def add_task(self, task):
-        self.all_tasks[task.get_id()] = task
-        self.queue.put(task)
+        self._all_tasks[task.get_id()] = task
+        self._queue.put(task)
 
     def get_queue(self):
-        return self.queue
+        return self._queue
 
     def join(self, timeout=None):
-        return self.queue.join(timeout)
+        return self._queue.join(timeout)
 
 class Counter:
     def __init__(self):
-        self.count = 0
-        self.count_lock = BoundedSemaphore(1)
+        self._count = 0
+        self._count_lock = BoundedSemaphore(1)
 
     def __enter__(self):
-        with self.count_lock:
-            self.count += 1
-            logging.debug("counter now " + str(self.count))
-            return self.count
+        with self._count_lock:
+            self._count += 1
+            logging.debug("counter now " + str(self._count))
+            return self._count
 
     def __exit__(self, type, value, traceback):
-        with self.count_lock:
-            self.count -= 1
-            logging.debug("counter now " + str(self.count))
+        with self._count_lock:
+            self._count -= 1
+            logging.debug("counter now " + str(self._count))
+
+    def get_count(self):
+        return self._count
 
 class UploadWebApp(Flask):
     def __init__(self, import_name):
@@ -113,21 +121,21 @@ class UploadWebApp(Flask):
 
 class Workers:
     def __init__(self):
-        self.workers = []
-        self.quit_workers = Event()
+        self._workers = []
+        self._quit_workers = Event()
 
     def start(self, task_list, worker_count=4):
         for i in range(worker_count):
             worker = Greenlet.spawn(self._work,
                                     task_list.get_queue(),
-                                    self.quit_workers)
-            self.workers.append(worker)
+                                    self._quit_workers)
+            self._workers.append(worker)
 
     def stop(self):
-        self.quit_workers.set()
-        for w in self.workers:
-            w.join()
-        self.quit_workers.clear()
+        self._quit_workers.set()
+        for worker in self._workers:
+            worker.join()
+        self._quit_workers.clear()
 
     def _work(self, queue, quit):
         global latest_task_complete
@@ -137,22 +145,22 @@ class Workers:
             try:
                 task = queue.get(timeout=1)
                 task.set_state(TaskState.Processing)
-                logging.info("processing task " + task.name)
+                logging.info("processing task " + task.get_name())
                 try:
                     output = check_output(["flatpak",
                                            "build-import-bundle",
                                            "--no-update-summary",
                                            "repo",
-                                           task.data],
+                                           task.get_data()],
                                           stderr=STDOUT)
-                    os.unlink(task.data)
+                    os.unlink(task.get_data())
                     task.set_state(TaskState.Completed)
-                    logging.info("completed task " + task.name)
+                    logging.info("completed task " + task.get_name())
                 except CalledProcessError as e:
                     # TODO: failed tasks should be handled - for now,
                     # don't delete the upload
                     task.set_state(TaskState.Failed)
-                    logging.error("failed task " + task.name)
+                    logging.error("failed task " + task.get_name())
                     logging.error("task output: " + e.output)
                 queue.task_done()
                 latest_task_complete = time()
@@ -187,6 +195,8 @@ if __name__=='__main__':
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     elif args.verbose:
+        logging.basicConfig(level=logging.VERBOSE)
+    else:
         logging.basicConfig(level=logging.INFO)
 
     logging.info("Starting server on %d..." % args.port)
@@ -204,7 +214,7 @@ if __name__=='__main__':
         try:
             gsleep(5)
             task_list.join()
-            logging.debug("task queue empty, " + str(active_upload_counter.count) + " uploads ongoing")
+            logging.debug("task queue empty, " + str(active_upload_counter.get_count()) + " uploads ongoing")
             time_since_maintenance = time() - latest_maintenance_complete
             time_since_task = time() - latest_task_complete
             logging.debug("{:.1f} since last task, {:.1f} since last maintenance".format(
