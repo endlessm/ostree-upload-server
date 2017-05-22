@@ -15,7 +15,7 @@ from gevent.event import Event
 from gevent.pywsgi import WSGIServer
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
-from flask import Flask, jsonify, request, render_template, send_from_directory
+from flask import Flask, jsonify, request, render_template, send_from_directory, url_for
 
 MAINTENANCE_WAIT = 10
 
@@ -85,7 +85,7 @@ class UploadWebApp(Flask):
         self.route("/upload", methods=["GET", "POST"])(self.upload)
 
     def index(self):
-        return "<a href='{0}'>upload</a>".format(flask.url_for("upload"))
+        return "<a href='{0}'>upload</a>".format(url_for("upload"))
 
     def upload(self):
         """
@@ -108,6 +108,8 @@ class UploadWebApp(Flask):
                 task_list.add_task(Task(upload.filename, real_name))
                 logging.debug("/upload: POST request completed for " + upload.filename)
                 return "task added\n"
+        else:
+            return "only POST method supported\n", 400
 
 class Workers:
     def __init__(self):
