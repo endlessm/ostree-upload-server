@@ -37,13 +37,16 @@ RUN mkdir -p $INSTALL_DIR
 WORKDIR $INSTALL_DIR
 
 # XXX: Use static/unique UID/GID to ensure consistency in mounted volume handling
-RUN groupadd -r -g 800 ostree-server
-RUN useradd -r -u 800 -g 800 ostree-server
+RUN groupadd -r -g 800 ostree-server && \
+    useradd -r -u 800 -g 800 ostree-server
 
 ADD . $INSTALL_DIR
-RUN chown -R ostree-server:ostree-server $INSTALL_DIR
-RUN chmod +x $INSTALL_DIR/ostree-upload-server.py
+RUN chown -R ostree-server:ostree-server $INSTALL_DIR && \
+    chmod +x $INSTALL_DIR/ostree-upload-server.py
+
+RUN mkdir /repo && \
+    chown -R ostree-server:ostree-server /repo
 
 USER ostree-server
 
-CMD ["/bin/sh", "-c", "${INSTALL_DIR}/ostree-upload-server.py"]
+CMD ["/bin/sh", "-c", "${INSTALL_DIR}/ostree-upload-server.py /repo"]
