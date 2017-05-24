@@ -1,18 +1,14 @@
-To run, create a virtual environment
+Build a docker image:
 
-  # virtualenv venv
+  # docker build -t ostree-upload-server .
 
-activate it
 
-  # . venv/bin/activate
+Check configuration in remotes.conf and flatpak-import.conf
 
-install dependencies
 
-  # pip install -r requirements.txt
+Launch container:
 
-and launch
-
-  # python main.py
+  # docker run -it -p 127.0.0.1:5000:5000 ostree-upload-server
 
 
 To upload a file with curl:
