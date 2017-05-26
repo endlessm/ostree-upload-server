@@ -57,7 +57,7 @@ if __name__ == "__main__":
 
     ### parse flatpak metadata
 
-    checksum_variant = delta[3]
+    checksum_variant = delta.get_child_value(3)
     if not OSTree.validate_structureof_csum_v(checksum_variant):
         # checksum format invalid
         pass
@@ -132,12 +132,18 @@ if __name__ == "__main__":
     # verify gpg signature
 
 
-    # grab commit root
-
-
     # commit the transaction
 
     repo.commit_transaction(None)
+
+
+    # grab commit root
+
+    (ret, commit_root, commit_checksum) = repo.read_commit(ref, None)
+    if not ret:
+        logging.critical("commit failed")
+    else:
+        logging.debug("commit_checksum: " + commit_checksum)
 
 
     # compare installed and header metadata, remove commit if mismatch
