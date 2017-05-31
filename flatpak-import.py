@@ -6,6 +6,7 @@ gi.require_version('OSTree', '1.0')
 from gi.repository import GLib, Gio, OSTree
 import logging
 import os
+from sys import exit
 
 
 OSTREE_COMMIT_GVARIANT_STRING = "(a{sv}aya(say)sstayay)"
@@ -29,7 +30,10 @@ if __name__ == "__main__":
     aparser.add_argument('repo',
                          help='repository name to use')
     aparser.add_argument('flatpak', help='file to import')
+    aparser.add_argument('-g', '--gpg-homedir',
+                         help='GPG homedir to use when looking for keyrings')
     aparser.add_argument('-k', '--keyring', help='additional trusted keyring file')
+    aparser.add_argument('-s', '--sign-key', help='GPG key ID to sign the commit with')
     aparser.add_argument('-v', '--verbose', action='store_true',
                          help='verbose log output')
     aparser.add_argument('-d', '--debug', action='store_true',
@@ -63,7 +67,7 @@ if __name__ == "__main__":
     checksum_variant = delta.get_child_value(3)
     if not OSTree.validate_structureof_csum_v(checksum_variant):
         # checksum format invalid
-        pass
+        exit(1)
 
     metadata_variant = delta.get_child_value(0)
 
@@ -134,12 +138,16 @@ if __name__ == "__main__":
 
     # verify gpg signature
 
+    if args.gpg_homedir:
+        gpg_homedir = Gio.File.new_for_path(args.gpg_homedir)
+    else:
+        gpg_homedir = None
     if args.keyring:
         trusted_keyring = Gio.File.new_for_path(args.keyring)
     else:
         trusted_keyring = None
     gpg_verify_result = repo.verify_commit_ext(commit,
-                                               keyringdir=None,
+                                               keyringdir=gpg_homedir,
                                                extra_keyring=trusted_keyring,
                                                cancellable=None)
     # TODO: handle signature requirements
@@ -147,6 +155,7 @@ if __name__ == "__main__":
         logging.info("valid signature found")
     else:
         logging.error("no valid signature")
+        exit(1)
 
 
     # commit the transaction
@@ -159,6 +168,7 @@ if __name__ == "__main__":
     (ret, commit_root, commit_checksum) = repo.read_commit(ref, None)
     if not ret:
         logging.critical("commit failed")
+        exit(1)
     else:
         logging.debug("commit_checksum: " + commit_checksum)
 
@@ -166,17 +176,31 @@ if __name__ == "__main__":
     # compare installed and header metadata, remove commit if mismatch
 
     metadata_file = Gio.File.resolve_relative_path (commit_root, "metadata");
+    # TODO: GLib-GIO-CRITICAL **: g_file_input_stream_query_info: assertion
+    # 'G_IS_FILE_INPUT_STREAM (stream)' failed
     (ret, metadata_contents, _) = metadata_file.load_contents(cancellable=None)
     if ret:
         if metadata_contents == app_metadata:
             logging.debug("committed metadata matches the static delta header")
         else:
             logging.critical("committed metadata does not match the static delta header")
+            repo.set_ref_immediate(remote=None,
+                                   ref=ref,
+                                   checksum=None,
+                                   cancellable=None)
+            exit(1)
     else:
         logging.critical("no metadata found in commit")
+        exit(1)
 
 
     # sign the commit
 
-
+    if args.sign_key:
+        logging.debug("should sign with key " + args.sign_key)
+        ret = repo.sign_commit(commit_checksum=commit,
+                               key_id=args.sign_key,
+                               homedir=args.gpg_homedir,
+                               cancellable=None)
+        logging.debug("sign_commit returned " + str(ret))
 
