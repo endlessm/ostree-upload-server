@@ -29,6 +29,7 @@ if __name__ == "__main__":
     aparser.add_argument('repo',
                          help='repository name to use')
     aparser.add_argument('flatpak', help='file to import')
+    aparser.add_argument('-k', '--keyring', help='additional trusted keyring file')
     aparser.add_argument('-v', '--verbose', action='store_true',
                          help='verbose log output')
     aparser.add_argument('-d', '--debug', action='store_true',
@@ -57,12 +58,14 @@ if __name__ == "__main__":
 
     ### parse flatpak metadata
 
+    # use get_child_value instead of array index to avoid
+    # slowdown (constructing the whole array?)
     checksum_variant = delta.get_child_value(3)
     if not OSTree.validate_structureof_csum_v(checksum_variant):
         # checksum format invalid
         pass
 
-    metadata_variant = delta[0]
+    metadata_variant = delta.get_child_value(0)
 
     commit = OSTree.checksum_from_bytes_v(checksum_variant)
 
@@ -131,6 +134,20 @@ if __name__ == "__main__":
 
     # verify gpg signature
 
+    if args.keyring:
+        trusted_keyring = Gio.File.new_for_path(args.keyring)
+    else:
+        trusted_keyring = None
+    gpg_verify_result = repo.verify_commit_ext(commit,
+                                               keyringdir=None,
+                                               extra_keyring=trusted_keyring,
+                                               cancellable=None)
+    # TODO: handle signature requirements
+    if gpg_verify_result and gpg_verify_result.count_valid() > 0:
+        logging.info("valid signature found")
+    else:
+        logging.error("no valid signature")
+
 
     # commit the transaction
 
@@ -147,6 +164,16 @@ if __name__ == "__main__":
 
 
     # compare installed and header metadata, remove commit if mismatch
+
+    metadata_file = Gio.File.resolve_relative_path (commit_root, "metadata");
+    (ret, metadata_contents, _) = metadata_file.load_contents(cancellable=None)
+    if ret:
+        if metadata_contents == app_metadata:
+            logging.debug("committed metadata matches the static delta header")
+        else:
+            logging.critical("committed metadata does not match the static delta header")
+    else:
+        logging.critical("no metadata found in commit")
 
 
     # sign the commit
