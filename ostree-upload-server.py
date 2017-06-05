@@ -114,7 +114,6 @@ class UploadWebApp(Flask):
         if request.method == "POST":
             logging.debug("/upload: POST request start")
 
-            # TODO: active_upload_counter should be a member
             with self._upload_counter:
                 if 'file' not in request.files:
                     return "no file in POST\n", 400
@@ -123,12 +122,10 @@ class UploadWebApp(Flask):
                 if upload.filename == "":
                     return "no filename in upload\n", 400
 
-                # TODO: tempdir should be a member
                 (f, real_name) = tempfile.mkstemp(dir=self._tempdir)
                 os.close(f)
                 upload.save(real_name)
 
-                # TODO: task_list reference should be a member
                 self._webapp_callback(upload.filename, real_name)
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
