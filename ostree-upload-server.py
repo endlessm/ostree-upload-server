@@ -18,6 +18,7 @@ from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 from flask import Flask, jsonify, request, render_template, send_from_directory, url_for
 
+from pushadapters import adapters
 
 MAINTENANCE_WAIT = 10
 
@@ -100,6 +101,7 @@ class UploadWebApp(Flask):
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
+        self.route("/push")(self.push)
 
         self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
         atexit.register(os.rmdir, self._tempdir)
@@ -109,7 +111,7 @@ class UploadWebApp(Flask):
 
     def upload(self):
         """
-        Upload a flatpak bundle
+        Receive a flatpak bundle
         """
         if request.method == "POST":
             logging.debug("/upload: POST request start")
@@ -132,6 +134,18 @@ class UploadWebApp(Flask):
                 return "task added\n"
         else:
             return "only POST method supported\n", 400
+
+    def push(self):
+        """
+        Extract a flatpak bundle from local repository and push to a remote
+        """
+        try:
+            ref = request.args['ref']
+            remote = request.args['remote']
+        except KeyError:
+            return "ref and remote arguments required", 400
+        logging.debug("/push: {0} to {1}".format(ref, remote))
+        return("/push: {0} to {1}".format(ref, remote))
 
 
 class Workers:
