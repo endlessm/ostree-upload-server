@@ -1,10 +1,4 @@
 
-
-adapters = {
-               'http': HTTPPushAdapter,
-               'scp': SCPPushAdapter
-           }
-
 class BasePushAdapter():
     def __init__(self):
         pass
@@ -20,4 +14,9 @@ class SCPPushAdapter(BasePushAdapter):
         pass
 
 
+
+adapters = {
+               'http': HTTPPushAdapter,
+               'scp': SCPPushAdapter
+           }
 
