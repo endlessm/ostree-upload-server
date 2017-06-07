@@ -1,19 +1,21 @@
+import logging
+import os
+
 from gevent import sleep as gsleep
 from gevent.event import Event
-
+from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 class TaskState:
     Pending, Processing, Completed, Failed = range(4)
 
 
-class Task:
+class BaseTask(object):
     _next_task_id = 0
 
-    def __init__(self, name, data):
-        self._task_id = Task._next_task_id
-        Task._next_task_id += 1
+    def __init__(self, name):
+        self._task_id = BaseTask._next_task_id
+        BaseTask._next_task_id += 1
         self._name = name
-        self._data = data
         self._state = TaskState.Pending
         self._state_change = Event()
 
@@ -26,13 +28,36 @@ class Task:
     def get_name(self):
         return self._name
 
-    def get_data(self):
-        return self._data
-
     def get_state(self):
         return self._state
 
     def get_id(self):
         return self._task_id
 
+
+class ReceiveTask(BaseTask):
+    def __init__(self, taskname, upload, repo):
+        super(ReceiveTask, self).__init__(taskname)
+        self._upload = upload
+        self._repo = repo
+
+    def run(self):
+        self.set_state(TaskState.Processing)
+        logging.info("processing task " + self.get_name())
+        try:
+            output = check_output(["flatpak",
+                                   "build-import-bundle",
+                                   "--no-update-summary",
+                                   self._repo,
+                                   self._upload],
+                                  stderr=STDOUT)
+            os.unlink(self._upload)
+            self.set_state(TaskState.Completed)
+            logging.info("completed task " + self.get_name())
+        except CalledProcessError as e:
+            # TODO: failed tasks should be handled - for now,
+            # don't delete the upload
+            self.set_state(TaskState.Failed)
+            logging.error("failed task " + self.get_name())
+            logging.error("task output: " + e.output)
 
