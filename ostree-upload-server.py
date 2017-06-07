@@ -19,7 +19,7 @@ from gevent.subprocess import check_output, CalledProcessError, STDOUT
 from flask import Flask, jsonify, request, render_template, send_from_directory, url_for
 
 from pushadapters import adapters
-from task import Task, TaskState
+from task import TaskState, ReceiveTask
 
 MAINTENANCE_WAIT = 10
 
@@ -61,8 +61,9 @@ class ThreadsafeCounter:
 
 
 class UploadWebApp(Flask):
-    def __init__(self, import_name, upload_counter, webapp_callback):
+    def __init__(self, import_name, repo, upload_counter, webapp_callback):
         super(UploadWebApp, self).__init__(import_name)
+        self._repo = repo
         self._upload_counter = upload_counter
         self._webapp_callback = webapp_callback
 
@@ -95,7 +96,7 @@ class UploadWebApp(Flask):
                 os.close(f)
                 upload.save(real_name)
 
-                self._webapp_callback(upload.filename, real_name)
+                self._webapp_callback(ReceiveTask(upload.filename, real_name, self._repo))
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
                 return "task added\n"
@@ -146,25 +147,7 @@ class Workers:
         while not self._exit_event.is_set():
             try:
                 task = task_queue.get(timeout=1)
-                task.set_state(TaskState.Processing)
-                logging.info("processing task " + task.get_name())
-                try:
-                    output = check_output(["flatpak",
-                                           "build-import-bundle",
-                                           "--no-update-summary",
-                                           self._repo,
-                                           task.get_data()],
-                                          stderr=STDOUT)
-                    os.unlink(task.get_data())
-                    task.set_state(TaskState.Completed)
-                    logging.info("completed task " + task.get_name())
-                except CalledProcessError as e:
-                    # TODO: failed tasks should be handled - for now,
-                    # don't delete the upload
-                    task.set_state(TaskState.Failed)
-                    logging.error("failed task " + task.get_name())
-                    logging.error("task output: " + e.output)
-
+                task.run()
                 task_queue.task_done()
                 self._completed_callback()
 
@@ -200,10 +183,10 @@ class OstreeUploadServer(object):
         workers = Workers(self._repo, partial(completed_callback, latest_task_complete))
         workers.start(task_list, self._workers)
 
-        def webapp_callback(task_name, filepath):
-            task_list.add_task(Task(task_name, filepath))
+        def webapp_callback(task):
+            task_list.add_task(task)
 
-        webapp = UploadWebApp(__name__, active_upload_counter, webapp_callback)
+        webapp = UploadWebApp(__name__, self._repo, active_upload_counter, webapp_callback)
 
         http_server = WSGIServer(('', self._port), webapp)
         http_server.start()
