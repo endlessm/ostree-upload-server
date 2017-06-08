@@ -61,3 +61,13 @@ class ReceiveTask(BaseTask):
             logging.error("failed task " + self.get_name())
             logging.error("task output: " + e.output)
 
+
+class PushTask(BaseTask):
+    def __init__(self, taskname, ref, remote):
+        super(ReceiveTask, self).__init__(taskname)
+        self._ref = ref
+        self._remote = remote
+
+    def run(self):
+        logging.info("processing task " + self.get_name())
+        logging.debug("push {0} to {1} ".format(self._ref, self._remote))
