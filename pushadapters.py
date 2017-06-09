@@ -1,4 +1,8 @@
 import logging
+import os.path
+
+import requests
+from requests_toolbelt.multipart import MultipartEncoder
 
 
 class BasePushAdapter(object):
@@ -27,7 +31,14 @@ class HTTPPushAdapter(BasePushAdapter):
 
     def push(self, bundle):
         logging.debug("http push {0} to {1}".format(bundle, self._url))
-        return True
+        encoder = MultipartEncoder({'file': (os.path.basename(bundle),
+                                             open(bundle, 'rb'),
+                                             'application/octet-stream')})
+        r = requests.post(self._url,
+                          data=encoder,
+                          headers={'Content-Type': encoder.content_type})
+        logging.debug("http push {0} response: {1}".format(bundle, r.text))
+        return r.status_code == requests.codes.ok
 
 
 class SCPPushAdapter(BasePushAdapter):
