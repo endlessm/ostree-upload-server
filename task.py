@@ -1,5 +1,6 @@
 import logging
 import os
+import tempfile
 
 from gevent import sleep as gsleep
 from gevent.event import Event
@@ -64,7 +65,7 @@ class ReceiveTask(BaseTask):
 
 class PushTask(BaseTask):
     def __init__(self, taskname, repo, ref, adapter, tempdir):
-        super(ReceiveTask, self).__init__(taskname)
+        super(PushTask, self).__init__(taskname)
         self._repo = repo
         self._ref = ref
         self._adapter = adapter
