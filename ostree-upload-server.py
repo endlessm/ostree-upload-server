@@ -7,6 +7,7 @@ import os
 import tempfile
 import threading
 
+from ConfigParser import SafeConfigParser
 from functools import partial
 from time import time
 
@@ -18,8 +19,8 @@ from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 from flask import Flask, jsonify, request, render_template, send_from_directory, url_for
 
-from pushadapters import adapters
-from task import TaskState, ReceiveTask
+from pushadapters import adapter_types
+from task import TaskState, ReceiveTask, PushTask
 
 MAINTENANCE_WAIT = 10
 
@@ -61,10 +62,11 @@ class ThreadsafeCounter:
 
 
 class UploadWebApp(Flask):
-    def __init__(self, import_name, repo, upload_counter, webapp_callback):
+    def __init__(self, import_name, repo, upload_counter, push_adapters, webapp_callback):
         super(UploadWebApp, self).__init__(import_name)
         self._repo = repo
         self._upload_counter = upload_counter
+        self._push_adapters = push_adapters
         self._webapp_callback = webapp_callback
 
         self.route("/")(self.index)
@@ -107,12 +109,17 @@ class UploadWebApp(Flask):
         """
         Extract a flatpak bundle from local repository and push to a remote
         """
+        logging.debug(request.args)
         try:
             ref = request.args['ref']
             remote = request.args['remote']
         except KeyError:
             return "ref and remote arguments required", 400
         logging.debug("/push: {0} to {1}".format(ref, remote))
+        if not remote in self._push_adapters:
+            return "unknown remote", 400
+        adapter = self._push_adapters[remote]
+        self._webapp_callback(PushTask(ref, self._repo, ref, adapter, self._tempdir))
         return("/push: {0} to {1}".format(ref, remote))
 
 
@@ -174,19 +181,33 @@ class OstreeUploadServer(object):
 
         logging.info("Starting server on %d..." % self._port)
 
-        logging.debug("task completed callback %s", latest_task_complete);
+        logging.debug("task completed callback %s", latest_task_complete)
 
         def completed_callback(latest_task_complete):
-            logging.debug("task completed callback %s", latest_task_complete);
+            logging.debug("task completed callback %s", latest_task_complete)
             latest_task_complete[:] = [time()]
 
         workers = Workers(self._repo, partial(completed_callback, latest_task_complete))
         workers.start(task_list, self._workers)
 
+        push_adapters = {}
+        remotes_config = SafeConfigParser(allow_no_value = True)
+        remotes_config.read('remotes.conf')
+        for remote_name in remotes_config.sections():
+            remote_dict = dict(remotes_config.items(remote_name))
+            adapter_type = remote_dict['type']
+            if adapter_type in adapter_types:
+                logging.debug("setting up adapter {0}, type {1}".format(remote_name, adapter_type))
+                push_adapters[remote_name] = (adapter_types[adapter_type])(remote_name, remote_dict)
+
         def webapp_callback(task):
             task_list.add_task(task)
 
-        webapp = UploadWebApp(__name__, self._repo, active_upload_counter, webapp_callback)
+        webapp = UploadWebApp(__name__,
+                              self._repo,
+                              active_upload_counter,
+                              push_adapters,
+                              webapp_callback)
 
         http_server = WSGIServer(('', self._port), webapp)
         http_server.start()
