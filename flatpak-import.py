@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 
 from argparse import ArgumentParser
+from ConfigParser import ConfigParser
 import gi
 gi.require_version('OSTree', '1.0')
 from gi.repository import GLib, Gio, OSTree
@@ -38,6 +39,11 @@ if __name__ == "__main__":
                          help='verbose log output')
     aparser.add_argument('-d', '--debug', action='store_true',
                          help='debug log output')
+
+    config = ConfigParser()
+    config.read('flatpak-import.conf')
+    aparser.set_defaults(**dict(config.items('defaults')))
+
     args = aparser.parse_args()
 
     if args.debug:
