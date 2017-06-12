@@ -20,6 +20,7 @@ from gevent.subprocess import check_output, CalledProcessError, STDOUT
 from flask import Flask, jsonify, request, render_template, send_from_directory, url_for
 
 from pushadapters import adapter_types
+from repolock import RepoLock
 from task import TaskState, ReceiveTask, PushTask
 
 MAINTENANCE_WAIT = 10
@@ -124,9 +125,8 @@ class UploadWebApp(Flask):
 
 
 class Workers:
-    def __init__(self, repo, completed_callback):
+    def __init__(self, completed_callback):
         self._workers = []
-        self._repo = repo
         self._completed_callback = completed_callback
 
     def start(self, task_list, worker_count=4):
@@ -166,8 +166,8 @@ class Workers:
 
 
 class OstreeUploadServer(object):
-    def __init__(self, repo, port, workers):
-        self._repo = repo
+    def __init__(self, repopath, port, workers):
+        self._repo = repopath
         self._port = port
         self._workers = workers
 
@@ -187,7 +187,7 @@ class OstreeUploadServer(object):
             logging.debug("task completed callback %s", latest_task_complete)
             latest_task_complete[:] = [time()]
 
-        workers = Workers(self._repo, partial(completed_callback, latest_task_complete))
+        workers = Workers(partial(completed_callback, latest_task_complete))
         workers.start(task_list, self._workers)
 
         push_adapters = {}
@@ -233,16 +233,17 @@ class OstreeUploadServer(object):
                         logging.debug("idle, do maintenance")
                         workers.stop()
 
-                        try:
-                            output = check_output(["flatpak",
-                                                   "build-update-repo",
-                                                   "--generate-static-deltas",
-                                                   "--prune",
-                                                   self._repo],
-                                                  stderr=STDOUT)
-                            logging.info("completed maintenance: " + output)
-                        except CalledProcessError as e:
-                            logging.error("failed maintenance: " + e.output)
+                        with RepoLock(self._repo, exclusive=True):
+                            try:
+                                output = check_output(["flatpak",
+                                                       "build-update-repo",
+                                                       "--generate-static-deltas",
+                                                       "--prune",
+                                                       self._repo],
+                                                      stderr=STDOUT)
+                                logging.info("completed maintenance: " + output)
+                            except CalledProcessError as e:
+                                logging.error("failed maintenance: " + e.output)
 
                         latest_maintenance_complete = time()
                         workers.start(task_list, self._workers)
