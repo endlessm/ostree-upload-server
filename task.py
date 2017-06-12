@@ -6,6 +6,8 @@ from gevent import sleep as gsleep
 from gevent.event import Event
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
+from repolock import RepoLock
+
 class TaskState:
     Pending, Processing, Completed, Failed = range(4)
 
@@ -45,22 +47,23 @@ class ReceiveTask(BaseTask):
     def run(self):
         self.set_state(TaskState.Processing)
         logging.info("processing task " + self.get_name())
-        try:
-            output = check_output(["flatpak",
-                                   "build-import-bundle",
-                                   "--no-update-summary",
-                                   self._repo,
-                                   self._upload],
-                                  stderr=STDOUT)
-            os.unlink(self._upload)
-            self.set_state(TaskState.Completed)
-            logging.info("completed task " + self.get_name())
-        except CalledProcessError as e:
-            # TODO: failed tasks should be handled - for now,
-            # don't delete the upload
-            self.set_state(TaskState.Failed)
-            logging.error("failed task " + self.get_name())
-            logging.error("task output: " + e.output)
+        with RepoLock(self._repo):
+            try:
+                output = check_output(["./flatpak-import.py",
+                                       "--debug",
+                                       self._repo,
+                                       self._upload],
+                                      stderr=STDOUT)
+                os.unlink(self._upload)
+                self.set_state(TaskState.Completed)
+                logging.info("completed task " + self.get_name())
+                logging.error("task output: " + output)
+            except CalledProcessError as e:
+                # TODO: failed tasks should be handled - for now,
+                # don't delete the upload
+                self.set_state(TaskState.Failed)
+                logging.error("failed task " + self.get_name())
+                logging.error("task output: " + e.output)
 
 
 class PushTask(BaseTask):
@@ -90,15 +93,16 @@ class PushTask(BaseTask):
     def _extract(self):
         (f, filename) = tempfile.mkstemp(dir=self._tempdir)
         os.close(f)
-        try:
-            output = check_output(["flatpak",
-                                   "build-bundle",
-                                   self._repo,
-                                   filename,
-                                   self._ref],
-                                  stderr=STDOUT)
-            logging.info("extracted {0} as {1}".format(self._ref, filename))
-            return filename
-        except CalledProcessError as e:
-            os.unlink(filename)
-            return None
+        with RepoLock(self._repo):
+            try:
+                output = check_output(["flatpak",
+                                       "build-bundle",
+                                       self._repo,
+                                       filename,
+                                       self._ref],
+                                      stderr=STDOUT)
+                logging.info("extracted {0} as {1}".format(self._ref, filename))
+                return filename
+            except CalledProcessError as e:
+                os.unlink(filename)
+                return None
