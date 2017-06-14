@@ -191,14 +191,19 @@ class OstreeUploadServer(object):
         workers.start(task_list, self._workers)
 
         push_adapters = {}
-        remotes_config = SafeConfigParser(allow_no_value = True)
-        remotes_config.read('remotes.conf')
-        for remote_name in remotes_config.sections():
-            remote_dict = dict(remotes_config.items(remote_name))
+        config = SafeConfigParser(allow_no_value = True)
+        config.read('ostree-upload-server.conf')
+        for section in config.sections():
+            if not section.startswith('remote-'):
+                continue
+            remote_dict = dict(config.items(section))
+            remote_name = section.split('-')[1]
             adapter_type = remote_dict['type']
             if adapter_type in adapter_types:
                 logging.debug("setting up adapter {0}, type {1}".format(remote_name, adapter_type))
                 push_adapters[remote_name] = (adapter_types[adapter_type])(remote_name, remote_dict)
+            else:
+                logging.error("adapter {0}: unknown type {1}".format(remote_name, adapter_type))
 
         def webapp_callback(task):
             task_list.add_task(task)
