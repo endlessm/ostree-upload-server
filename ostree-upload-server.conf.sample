@@ -1,10 +1,10 @@
-[test]
+[remote-test]
 type: dummy
 
-[public]
+[remote-public]
 type: http
 url: http://ostree-server.invalid:5678/upload
 
-[public2]
+[remote-public2]
 type: http
 url: http://ostree-server2.invalid:5000/upload
