@@ -17,7 +17,7 @@ from gevent.event import Event
 from gevent.pywsgi import WSGIServer
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
-from flask import Flask, jsonify, request, render_template, send_from_directory, url_for
+from flask import Flask, request, Response, url_for
 
 from pushadapters import adapter_types
 from repolock import RepoLock
@@ -63,8 +63,9 @@ class ThreadsafeCounter:
 
 
 class UploadWebApp(Flask):
-    def __init__(self, import_name, repo, upload_counter, push_adapters, webapp_callback):
+    def __init__(self, import_name, users, repo, upload_counter, push_adapters, webapp_callback):
         super(UploadWebApp, self).__init__(import_name)
+        self._users = users
         self._repo = repo
         self._upload_counter = upload_counter
         self._push_adapters = push_adapters
@@ -77,6 +78,22 @@ class UploadWebApp(Flask):
         self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
         atexit.register(os.rmdir, self._tempdir)
 
+    def _check_auth(self):
+        if not self._users:
+            return True
+        auth = request.authorization
+        if auth and \
+                auth.username in self._users and \
+                auth.password == self._users.get(auth.username):
+            return True
+        return False
+
+    def _authenticate(self):
+        """Sends a 401 response that enables basic auth"""
+        return Response(
+            'You have to login with proper credentials\n', 401,
+            {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
     def index(self):
         return "<a href='{0}'>upload</a>".format(url_for("upload"))
 
@@ -84,6 +101,9 @@ class UploadWebApp(Flask):
         """
         Receive a flatpak bundle
         """
+        if not self._check_auth():
+            return self._authenticate()
+
         if request.method == "POST":
             logging.debug("/upload: POST request start")
 
@@ -110,6 +130,9 @@ class UploadWebApp(Flask):
         """
         Extract a flatpak bundle from local repository and push to a remote
         """
+        if not self._check_auth():
+            return self._authenticate()
+
         logging.debug(request.args)
         try:
             ref = request.args['ref']
@@ -208,7 +231,13 @@ class OstreeUploadServer(object):
         def webapp_callback(task):
             task_list.add_task(task)
 
+        users = None
+
+        if config.has_section('users'):
+            users = dict(config.items('users'))
+
         webapp = UploadWebApp(__name__,
+                              users,
                               self._repo,
                               active_upload_counter,
                               push_adapters,
