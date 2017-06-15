@@ -9,6 +9,8 @@ type: dummy
 [remote-public]
 type: http
 url: http://ostree-server.invalid:5678/upload
+username: user3
+password: secret3
 
 [remote-public2]
 type: http

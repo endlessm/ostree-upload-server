@@ -189,8 +189,8 @@ class Workers:
 
 
 class OstreeUploadServer(object):
-    def __init__(self, repopath, port, workers):
-        self._repo = repopath
+    def __init__(self, repo_path, port, workers):
+        self._repo = repo_path
         self._port = port
         self._workers = workers
 
