@@ -17,7 +17,7 @@ from gevent.event import Event
 from gevent.pywsgi import WSGIServer
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
-from flask import Flask, request, Response, url_for
+from flask import Flask, json, jsonify, request, Response, url_for
 
 from pushadapters import adapter_types
 from repolock import RepoLock
@@ -90,12 +90,14 @@ class UploadWebApp(Flask):
 
     def _authenticate(self):
         """Sends a 401 response that enables basic auth"""
+        message = { 'success': False, 'message': "Authentication required" }
         return Response(
-            'You have to login with proper credentials\n', 401,
+            json.dumps(message), 401,
             {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
     def index(self):
         return "<a href='{0}'>upload</a>".format(url_for("upload"))
+        return "<a href='{0}'>push</a>".format(url_for("push"))
 
     def upload(self):
         """
@@ -109,11 +111,13 @@ class UploadWebApp(Flask):
 
             with self._upload_counter:
                 if 'file' not in request.files:
-                    return "no file in POST\n", 400
+                    message = { 'success': False, 'message': "No file in request" }
+                    return jsonify(message), 400
 
                 upload = request.files['file']
                 if upload.filename == "":
-                    return "no filename in upload\n", 400
+                    message = { 'success': False, 'message': "No filename in request" }
+                    return jsonify(message), 400
 
                 (f, real_name) = tempfile.mkstemp(dir=self._tempdir)
                 os.close(f)
@@ -122,9 +126,12 @@ class UploadWebApp(Flask):
                 self._webapp_callback(ReceiveTask(upload.filename, real_name, self._repo))
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
-                return "task added\n"
+                # TODO: should return a task ID that can be used to check task status
+                message = { 'success': True, 'message': "Importing bundle" }
+                return jsonify(message)
         else:
-            return "only POST method supported\n", 400
+            message = { 'success': False, 'message': "Only POST method is suppported" }
+            return jsonify(message), 400
 
     def push(self):
         """
@@ -138,13 +145,17 @@ class UploadWebApp(Flask):
             ref = request.args['ref']
             remote = request.args['remote']
         except KeyError:
-            return "ref and remote arguments required", 400
+            message = { 'success': False, 'message': "ref and remote arguments required" }
+            return jsonify(message), 400
         logging.debug("/push: {0} to {1}".format(ref, remote))
         if not remote in self._push_adapters:
-            return "unknown remote", 400
+            message = { 'success': False, 'message': "Remote is not in the whitelist" }
+            return jsonify(message), 400
         adapter = self._push_adapters[remote]
         self._webapp_callback(PushTask(ref, self._repo, ref, adapter, self._tempdir))
-        return("/push: {0} to {1}".format(ref, remote))
+        # TODO: should return a task ID that can be used to check task status
+        message = { 'success': True, 'message': "Pushing {0} to {1}".format(ref, remote) }
+        return jsonify(message)
 
 
 class Workers:
@@ -277,7 +288,8 @@ class OstreeUploadServer(object):
                                                       stderr=STDOUT)
                                 logging.info("completed maintenance: " + output)
                             except CalledProcessError as e:
-                                logging.error("failed maintenance: " + e.output)
+                                logging.error("ERROR! Maintenance task failed!")
+                                logging.error(e)
 
                         latest_maintenance_complete = time()
                         workers.start(task_list, self._workers)
