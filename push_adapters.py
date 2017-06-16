@@ -1,3 +1,4 @@
+from abc import ABCMeta, abstractmethod
 import logging
 import os.path
 
@@ -5,15 +6,23 @@ import requests
 from requests_toolbelt.multipart import MultipartEncoder
 
 
-class BasePushAdapter(object):
+class BasePushAdapter():
+    __metaclass__ = ABCMeta
+
     def __init__(self, name):
         self._name = name
 
     def __str__(self):
-        return('PushAdapter({0})'.format(self._name))
+        return 'PushAdapter({0})'.format(self._name)
+
+    @abstractmethod
+    def push(self, bundle):
+        pass
 
 
 class DummyPushAdapter(BasePushAdapter):
+    name = "dummy"
+
     def __init__(self, name, settings):
         super(DummyPushAdapter, self).__init__(name)
         logging.debug("initialized dummy adapter")
@@ -25,6 +34,8 @@ class DummyPushAdapter(BasePushAdapter):
 
 
 class HTTPPushAdapter(BasePushAdapter):
+    name = "http"
+
     def __init__(self, name, settings):
         super(HTTPPushAdapter, self).__init__(name)
         self._url = settings.get('url')
@@ -49,6 +60,8 @@ class HTTPPushAdapter(BasePushAdapter):
 
 
 class SCPPushAdapter(BasePushAdapter):
+    name = "scp"
+
     def __init__(self, name, settings):
         super(SCPPushAdapter, self).__init__(name)
         self._url = settings.get('url')
@@ -61,7 +74,7 @@ class SCPPushAdapter(BasePushAdapter):
 
 
 adapter_types = {
-                    'dummy': DummyPushAdapter,
-                    'http': HTTPPushAdapter,
-                    'scp': SCPPushAdapter
+                    DummyPushAdapter.name: DummyPushAdapter,
+                    HTTPPushAdapter.name: HTTPPushAdapter,
+                    SCPPushAdapter.name: SCPPushAdapter
                 }

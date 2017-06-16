@@ -19,7 +19,7 @@ from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 from flask import Flask, json, jsonify, request, Response, url_for
 
-from pushadapters import adapter_types
+from push_adapters import adapter_types
 from repolock import RepoLock
 from task import TaskState, ReceiveTask, PushTask
 
