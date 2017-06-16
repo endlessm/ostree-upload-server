@@ -9,7 +9,7 @@ from gevent.subprocess import check_output, CalledProcessError, STDOUT
 from repolock import RepoLock
 
 class TaskState:
-    Pending, Processing, Completed, Failed = range(4)
+    PENDING, PROCESSING, COMPLETED, FAILED = range(4)
 
 
 class BaseTask(object):
@@ -19,7 +19,7 @@ class BaseTask(object):
         self._task_id = BaseTask._next_task_id
         BaseTask._next_task_id += 1
         self._name = name
-        self._state = TaskState.Pending
+        self._state = TaskState.PENDING
         self._state_change = Event()
 
     def set_state(self, newstate):
@@ -45,7 +45,7 @@ class ReceiveTask(BaseTask):
         self._repo = repo
 
     def run(self):
-        self.set_state(TaskState.Processing)
+        self.set_state(TaskState.PROCESSING)
         logging.info("processing task " + self.get_name())
         with RepoLock(self._repo):
             try:
@@ -55,13 +55,13 @@ class ReceiveTask(BaseTask):
                                        self._upload],
                                       stderr=STDOUT)
                 os.unlink(self._upload)
-                self.set_state(TaskState.Completed)
+                self.set_state(TaskState.COMPLETED)
                 logging.info("completed task " + self.get_name())
                 logging.error("task output: " + output)
             except CalledProcessError as e:
                 # TODO: failed tasks should be handled - for now,
                 # don't delete the upload
-                self.set_state(TaskState.Failed)
+                self.set_state(TaskState.FAILED)
                 logging.error("failed task " + self.get_name())
                 logging.error("task output: " + e.output)
 
@@ -80,14 +80,14 @@ class PushTask(BaseTask):
         bundle = self._extract()
         if not bundle:
             logging.error("failed to extract {0}".format(self._ref))
-            self.set_state(TaskState.Failed)
+            self.set_state(TaskState.FAILED)
             return
         if not self._adapter.push(bundle):
             logging.error("failed to push {0} to {1}".format(bundle, self._adapter))
-            self.set_state(TaskState.Failed)
+            self.set_state(TaskState.FAILED)
             return
         os.unlink(bundle)
-        self.set_state(TaskState.Completed)
+        self.set_state(TaskState.COMPLETED)
         logging.info("completed task " + self.get_name())
 
     def _extract(self):
