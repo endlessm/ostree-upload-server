@@ -16,7 +16,6 @@ RUN apt-get update && \
                        ostree
 
 
-
 # Keep in line with requirements.txt and setup.py
 RUN apt-get update && apt-get install -y gir1.2-ostree-1.0 \
                                          python \

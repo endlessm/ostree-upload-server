@@ -2,12 +2,13 @@
 
 from argparse import ArgumentParser
 from ConfigParser import ConfigParser
-import gi
-gi.require_version('OSTree', '1.0')
-from gi.repository import GLib, Gio, OSTree
 import logging
 import os
 from sys import exit
+
+import gi
+gi.require_version('OSTree', '1.0')
+from gi.repository import GLib, Gio, OSTree
 
 
 OSTREE_COMMIT_GVARIANT_STRING = "(a{sv}aya(say)sstayay)"
@@ -24,7 +25,6 @@ OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT = \
 
 
 if __name__ == "__main__":
-
     aparser = ArgumentParser(
         description='Import flatpak into a local repository ',
     )
@@ -53,9 +53,7 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.WARNING)
 
-
-    ### mmap the flatpak file and create a GLib.Variant from it
-
+    ### Mmap the flatpak file and create a GLib.Variant from it
     mapped_file = GLib.MappedFile.new(args.flatpak, False)
     mapped_bytes = mapped_file.get_bytes()
     ostree_static_delta_superblock_format = GLib.VariantType(
@@ -65,14 +63,12 @@ if __name__ == "__main__":
             mapped_bytes,
             False)
 
-
-    ### parse flatpak metadata
-
-    # use get_child_value instead of array index to avoid
+    ### Parse flatpak metadata
+    # Use get_child_value instead of array index to avoid
     # slowdown (constructing the whole array?)
     checksum_variant = delta.get_child_value(3)
     if not OSTree.validate_structureof_csum_v(checksum_variant):
-        # checksum format invalid
+        # Checksum format invalid
         exit(1)
 
     metadata_variant = delta.get_child_value(0)
@@ -119,6 +115,7 @@ if __name__ == "__main__":
 
     # open repository
 
+    # Open repository
     repo_file = Gio.File.new_for_path(args.repo)
     repo = OSTree.Repo(path=repo_file)
     if os.path.exists(os.path.join(args.repo, 'config')):
@@ -129,21 +126,18 @@ if __name__ == "__main__":
         os.makedirs(args.repo)
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
-
-    # prepare transaction
-
+    # Prepare transaction
     repo.prepare_transaction(None)
     repo.transaction_set_ref(None, ref, commit)
 
 
     # execute the delta
 
+    # Execute the delta
     flatpak_file = Gio.File.new_for_path(args.flatpak)
     repo.static_delta_execute_offline(flatpak_file, False, None)
 
-
-    # verify gpg signature
-
+    # Verify gpg signature
     if args.gpg_homedir:
         gpg_homedir = Gio.File.new_for_path(args.gpg_homedir)
     else:
@@ -156,35 +150,29 @@ if __name__ == "__main__":
                                                keyringdir=gpg_homedir,
                                                extra_keyring=trusted_keyring,
                                                cancellable=None)
-    # TODO: handle signature requirements
+    # TODO: Handle signature requirements
     if gpg_verify_result and gpg_verify_result.count_valid() > 0:
         logging.info("valid signature found")
     else:
         logging.error("no valid signature")
         exit(1)
 
-
-    # commit the transaction
-
+    # Commit the transaction
     repo.commit_transaction(None)
 
-
-    # grab commit root
-
-    (ret, commit_root, commit_checksum) = repo.read_commit(ref, None)
+    # Grab commit root
+    ret, commit_root, commit_checksum = repo.read_commit(ref, None)
     if not ret:
         logging.critical("commit failed")
         exit(1)
     else:
         logging.debug("commit_checksum: " + commit_checksum)
 
-
-    # compare installed and header metadata, remove commit if mismatch
-
+    # Compare installed and header metadata, remove commit if mismatch
     metadata_file = Gio.File.resolve_relative_path (commit_root, "metadata");
     # TODO: GLib-GIO-CRITICAL **: g_file_input_stream_query_info: assertion
     # 'G_IS_FILE_INPUT_STREAM (stream)' failed
-    (ret, metadata_contents, _) = metadata_file.load_contents(cancellable=None)
+    ret, metadata_contents, _ = metadata_file.load_contents(cancellable=None)
     if ret:
         if metadata_contents == app_metadata:
             logging.debug("committed metadata matches the static delta header")
@@ -199,9 +187,7 @@ if __name__ == "__main__":
         logging.critical("no metadata found in commit")
         exit(1)
 
-
-    # sign the commit
-
+    # Sign the commit
     if args.sign_key:
         logging.debug("should sign with key " + args.sign_key)
         ret = repo.sign_commit(commit_checksum=commit,
@@ -209,4 +195,3 @@ if __name__ == "__main__":
                                homedir=args.gpg_homedir,
                                cancellable=None)
         logging.debug("sign_commit returned " + str(ret))
-
