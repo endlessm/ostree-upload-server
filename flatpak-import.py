@@ -72,48 +72,24 @@ if __name__ == "__main__":
         exit(1)
 
     metadata_variant = delta.get_child_value(0)
+    logging.debug("metadata keys: {0}".format(metadata_variant.keys()))
 
     commit = OSTree.checksum_from_bytes_v(checksum_variant)
 
-    ref = metadata_variant['ref']
+    metadata = {}
+    metadata_keys = [ 'ref',
+            'flatpak',
+            'origin',
+            'runtime-repo',
+            'metadata',
+            'gpg-keys' ]
 
-    if 'flatpak' in metadata_variant.keys():
-        flatpak = metadata_variant['flatpak']
-    else:
-        flatpak = ''
-
-    if 'origin' in metadata_variant.keys():
-        origin = metadata_variant['origin']
-    else:
-        origin = ''
-
-    if 'runtime-repo' in metadata_variant.keys():
-        runtime_repo = metadata_variant['runtime-repo']
-    else:
-        runtime_repo = ''
-
-    if 'metadata' in metadata_variant.keys():
-        app_metadata = metadata_variant['metadata']
-    else:
-        app_metadata = ''
-
-    if 'gpg-keys' in metadata_variant.keys():
-        gpg_keys = metadata_variant['gpg-keys']
-    else:
-        gpg_keys = ''
-
-    logging.debug("commit: " + commit)
-    logging.debug("flatpak: " + commit)
-    logging.debug("ref: " + ref)
-    logging.debug("origin: " + origin)
-    logging.debug("runtime_repo: " + runtime_repo)
-    logging.debug("app_metadata:\n---\n" + app_metadata + "---")
-    logging.debug("gpg_keys: " + gpg_keys)
-
-    logging.debug("metadata keys: " + str(metadata_variant.keys()))
-
-
-    # open repository
+    for key in metadata_keys:
+        try:
+            metadata[key] = metadata_variant[key]
+        except KeyError:
+            metadata[key] = ''
+        logging.debug("{0}: {1}".format(key, metadata[key]))
 
     # Open repository
     repo_file = Gio.File.new_for_path(args.repo)
@@ -128,10 +104,7 @@ if __name__ == "__main__":
 
     # Prepare transaction
     repo.prepare_transaction(None)
-    repo.transaction_set_ref(None, ref, commit)
-
-
-    # execute the delta
+    repo.transaction_set_ref(None, metadata['ref'], commit)
 
     # Execute the delta
     flatpak_file = Gio.File.new_for_path(args.flatpak)
@@ -161,7 +134,7 @@ if __name__ == "__main__":
     repo.commit_transaction(None)
 
     # Grab commit root
-    ret, commit_root, commit_checksum = repo.read_commit(ref, None)
+    ret, commit_root, commit_checksum = repo.read_commit(metadata['ref'], None)
     if not ret:
         logging.critical("commit failed")
         exit(1)
@@ -174,12 +147,12 @@ if __name__ == "__main__":
     # 'G_IS_FILE_INPUT_STREAM (stream)' failed
     ret, metadata_contents, _ = metadata_file.load_contents(cancellable=None)
     if ret:
-        if metadata_contents == app_metadata:
+        if metadata_contents == metadata['metadata']:
             logging.debug("committed metadata matches the static delta header")
         else:
             logging.critical("committed metadata does not match the static delta header")
             repo.set_ref_immediate(remote=None,
-                                   ref=ref,
+                                   ref=metadata['ref'],
                                    checksum=None,
                                    cancellable=None)
             exit(1)
