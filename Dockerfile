@@ -52,4 +52,4 @@ RUN mkdir /repo && \
 
 USER ostree-server
 
-CMD ["/bin/sh", "-c", "${INSTALL_DIR}/ostree-upload-server.py /repo"]
+ENTRYPOINT ["/usr/bin/python2", "ostree-upload-server.py", "/repo"]
