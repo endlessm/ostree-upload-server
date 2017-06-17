@@ -102,36 +102,40 @@ if __name__ == "__main__":
         os.makedirs(args.repo)
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
-    # Prepare transaction
-    repo.prepare_transaction(None)
-    repo.transaction_set_ref(None, metadata['ref'], commit)
+    try:
+        # Prepare transaction
+        repo.prepare_transaction(None)
+        repo.transaction_set_ref(None, metadata['ref'], commit)
 
-    # Execute the delta
-    flatpak_file = Gio.File.new_for_path(args.flatpak)
-    repo.static_delta_execute_offline(flatpak_file, False, None)
+        # Execute the delta
+        flatpak_file = Gio.File.new_for_path(args.flatpak)
+        repo.static_delta_execute_offline(flatpak_file, False, None)
 
-    # Verify gpg signature
-    if args.gpg_homedir:
-        gpg_homedir = Gio.File.new_for_path(args.gpg_homedir)
-    else:
-        gpg_homedir = None
-    if args.keyring:
-        trusted_keyring = Gio.File.new_for_path(args.keyring)
-    else:
-        trusted_keyring = None
-    gpg_verify_result = repo.verify_commit_ext(commit,
-                                               keyringdir=gpg_homedir,
-                                               extra_keyring=trusted_keyring,
-                                               cancellable=None)
-    # TODO: Handle signature requirements
-    if gpg_verify_result and gpg_verify_result.count_valid() > 0:
-        logging.info("valid signature found")
-    else:
-        logging.error("no valid signature")
-        exit(1)
+        # Verify gpg signature
+        if args.gpg_homedir:
+            gpg_homedir = Gio.File.new_for_path(args.gpg_homedir)
+        else:
+            gpg_homedir = None
+        if args.keyring:
+            trusted_keyring = Gio.File.new_for_path(args.keyring)
+        else:
+            trusted_keyring = None
+        gpg_verify_result = repo.verify_commit_ext(commit,
+                                                   keyringdir=gpg_homedir,
+                                                   extra_keyring=trusted_keyring,
+                                                   cancellable=None)
+        # TODO: Handle signature requirements
+        if gpg_verify_result and gpg_verify_result.count_valid() > 0:
+            logging.info("valid signature found")
+        else:
+            raise Exception("no valid signature")
 
-    # Commit the transaction
-    repo.commit_transaction(None)
+        # Commit the transaction
+        repo.commit_transaction(None)
+
+    except:
+        repo.abort_transaction(None)
+        raise
 
     # Grab commit root
     ret, commit_root, commit_checksum = repo.read_commit(metadata['ref'], None)
