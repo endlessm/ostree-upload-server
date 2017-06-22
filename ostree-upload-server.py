@@ -22,7 +22,7 @@ from flask_api import status
 
 from push_adapters import adapter_types
 from repolock import RepoLock
-from task import TaskState, ReceiveTask, PushTask
+from task import TaskState, ReceiveTask, PushTask, FetchTask
 
 MAINTENANCE_WAIT = 10
 
@@ -75,6 +75,7 @@ class UploadWebApp(Flask):
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
         self.route("/push")(self.push)
+        self.route("/fetch")(self.fetch)
 
         self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
         atexit.register(os.rmdir, self._tempdir)
@@ -99,6 +100,7 @@ class UploadWebApp(Flask):
     def index(self):
         return "<a href='{0}'>upload</a>".format(url_for("upload"))
         return "<a href='{0}'>push</a>".format(url_for("push"))
+        return "<a href='{0}'>fetch</a>".format(url_for("fetch"))
 
     def upload(self):
         """
@@ -129,6 +131,25 @@ class UploadWebApp(Flask):
                 return self._response(200, "Importing bundle")
         else:
             return self._response(400, "Only POST method is suppported")
+
+    def fetch(self):
+        """
+        Download a flatpak bundle from given URL and import it into  the
+        local repository
+        """
+        if not self._check_auth():
+            return self._authenticate()
+
+        logging.debug(request.args)
+        try:
+            url = request.args['url']
+        except KeyError:
+            return self._response(400, "url argument required")
+        logging.debug("/fetch: {0}".format(url))
+        self._webapp_callback(FetchTask(url, url, self._repo, self._tempdir))
+
+        # TODO: should return a task ID that can be used to check task status
+        return self._response(200, "Fetching and importing bundle")
 
     def push(self):
         """

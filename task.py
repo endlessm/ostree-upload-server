@@ -1,5 +1,6 @@
 import logging
 import os
+import requests
 import tempfile
 
 from gevent import sleep as gsleep
@@ -23,6 +24,8 @@ class BaseTask(object):
         self._state_change = Event()
 
     def set_state(self, newstate):
+        if newstate == self._state:
+            return
         self._state = newstate
         self._state_change.set()
         gsleep(0) # wake up anyone waiting
@@ -38,6 +41,21 @@ class BaseTask(object):
         return self._task_id
 
 
+def _import_flatpak(repo, filename):
+    with RepoLock(repo):
+        try:
+            output = check_output(["./flatpak-import.py",
+                                   "--debug",
+                                   repo,
+                                   filename],
+                                  stderr=STDOUT)
+            logging.debug("flatpak import output: " + output)
+            return True
+        except CalledProcessError as e:
+            logging.error("flatpak import output: " + e.output)
+            return False
+
+
 class ReceiveTask(BaseTask):
     def __init__(self, taskname, upload, repo):
         super(ReceiveTask, self).__init__(taskname)
@@ -47,23 +65,42 @@ class ReceiveTask(BaseTask):
     def run(self):
         self.set_state(TaskState.PROCESSING)
         logging.info("processing task " + self.get_name())
-        with RepoLock(self._repo):
-            try:
-                output = check_output(["./flatpak-import.py",
-                                       "--debug",
-                                       self._repo,
-                                       self._upload],
-                                      stderr=STDOUT)
-                os.unlink(self._upload)
-                self.set_state(TaskState.COMPLETED)
-                logging.info("completed task " + self.get_name())
-                logging.error("task output: " + output)
-            except CalledProcessError as e:
-                # TODO: failed tasks should be handled - for now,
-                # don't delete the upload
-                self.set_state(TaskState.FAILED)
-                logging.error("failed task " + self.get_name())
-                logging.error("task output: " + e.output)
+        if _import_flatpak(self._repo, self._upload):
+            os.unlink(self._upload)
+            logging.info("completed task " + self.get_name())
+            self.set_state(TaskState.COMPLETED)
+        else:
+            # TODO: failed tasks should be handled - for now,
+            # don't delete the upload
+            logging.error("failed task " + self.get_name())
+            self.set_state(TaskState.FAILED)
+
+
+class FetchTask(BaseTask):
+    def __init__(self, taskname, url, repo, tempdir):
+        super(FetchTask, self).__init__(taskname)
+        self._url = url
+        self._repo = repo
+        self._tempdir = tempdir
+
+    def run(self):
+        self.set_state(TaskState.PROCESSING)
+        logging.info("processing task " + self.get_name())
+        (fd, filename) = tempfile.mkstemp(dir=self._tempdir)
+        os.close(fd)
+        r = requests.get(self._url, stream=True)
+        with open(filename, "wb") as f:
+            for chunk in r.iter_content(chunk_size=128):
+                f.write(chunk)
+        if _import_flatpak(self._repo, filename):
+            os.unlink(filename)
+            logging.info("completed task " + self.get_name())
+            self.set_state(TaskState.COMPLETED)
+        else:
+            # TODO: failed tasks should be handled - for now,
+            # don't delete the upload
+            logging.error("failed task " + self.get_name())
+            self.set_state(TaskState.FAILED)
 
 
 class PushTask(BaseTask):
