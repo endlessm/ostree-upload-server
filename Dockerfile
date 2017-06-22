@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y python \
                                          python-appdirs \
                                          python-click \
                                          python-flask \
+                                         python-flask-api \
                                          python-gevent \
                                          python-greenlet \
                                          python-itsdangerous \

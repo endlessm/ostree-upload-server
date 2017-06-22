@@ -18,6 +18,7 @@ from gevent.pywsgi import WSGIServer
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 from flask import Flask, json, jsonify, request, Response, url_for
+from flask_api import status
 
 from push_adapters import adapter_types
 from repolock import RepoLock
@@ -111,13 +112,11 @@ class UploadWebApp(Flask):
 
             with self._upload_counter:
                 if 'file' not in request.files:
-                    message = { 'success': False, 'message': "No file in request" }
-                    return jsonify(message), 400
+                    return self._response(400, "No file in request")
 
                 upload = request.files['file']
                 if upload.filename == "":
-                    message = { 'success': False, 'message': "No filename in request" }
-                    return jsonify(message), 400
+                    return self._response(400, "No filename in request")
 
                 (f, real_name) = tempfile.mkstemp(dir=self._tempdir)
                 os.close(f)
@@ -127,11 +126,9 @@ class UploadWebApp(Flask):
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
                 # TODO: should return a task ID that can be used to check task status
-                message = { 'success': True, 'message': "Importing bundle" }
-                return jsonify(message)
+                return self._response(200, "Importing bundle")
         else:
-            message = { 'success': False, 'message': "Only POST method is suppported" }
-            return jsonify(message), 400
+            return self._response(400, "Only POST method is suppported")
 
     def push(self):
         """
@@ -145,17 +142,18 @@ class UploadWebApp(Flask):
             ref = request.args['ref']
             remote = request.args['remote']
         except KeyError:
-            message = { 'success': False, 'message': "ref and remote arguments required" }
-            return jsonify(message), 400
+            return self._response(400, "ref and remote arguments required")
         logging.debug("/push: {0} to {1}".format(ref, remote))
         if not remote in self._push_adapters:
-            message = { 'success': False, 'message': "Remote is not in the whitelist" }
-            return jsonify(message), 400
+            return self._response(400, "Remote is not in the whitelist")
         adapter = self._push_adapters[remote]
         self._webapp_callback(PushTask(ref, self._repo, ref, adapter, self._tempdir))
         # TODO: should return a task ID that can be used to check task status
-        message = { 'success': True, 'message': "Pushing {0} to {1}".format(ref, remote) }
-        return jsonify(message)
+        return self._response(200, "Pushing {0} to {1}".format(ref, remote))
+
+    def _response(self, status_code, message):
+        return jsonify( { 'success': status.is_success(status_code),
+                          'message': message } ), status_code
 
 
 class Workers:
