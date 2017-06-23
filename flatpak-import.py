@@ -23,8 +23,7 @@ OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT = \
     "a" + OSTREE_STATIC_DELTA_FALLBACK_FORMAT + \
     ")"
 
-
-if __name__ == "__main__":
+def _parse_args_and_config():
     aparser = ArgumentParser(
         description='Import flatpak into a local repository ',
     )
@@ -44,17 +43,15 @@ if __name__ == "__main__":
     config.read('flatpak-import.conf')
     aparser.set_defaults(**dict(config.items('defaults')))
 
-    args = aparser.parse_args()
+    return aparser.parse_args()
 
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
-    elif args.verbose:
-        logging.basicConfig(level=logging.INFO)
-    else:
-        logging.basicConfig(level=logging.WARNING)
-
+def import_flatpak(flatpak,
+                   repository,
+                   gpg_homedir,
+                   keyring,
+                   sign_key):
     ### Mmap the flatpak file and create a GLib.Variant from it
-    mapped_file = GLib.MappedFile.new(args.flatpak, False)
+    mapped_file = GLib.MappedFile.new(flatpak, False)
     mapped_bytes = mapped_file.get_bytes()
     ostree_static_delta_superblock_format = GLib.VariantType(
             OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT)
@@ -69,7 +66,7 @@ if __name__ == "__main__":
     checksum_variant = delta.get_child_value(3)
     if not OSTree.validate_structureof_csum_v(checksum_variant):
         # Checksum format invalid
-        sys.exit(1)
+        return False
 
     metadata_variant = delta.get_child_value(0)
     logging.debug("metadata keys: {0}".format(metadata_variant.keys()))
@@ -92,14 +89,14 @@ if __name__ == "__main__":
         logging.debug("{0}: {1}".format(key, metadata[key]))
 
     # Open repository
-    repo_file = Gio.File.new_for_path(args.repo)
+    repo_file = Gio.File.new_for_path(repository)
     repo = OSTree.Repo(path=repo_file)
-    if os.path.exists(os.path.join(args.repo, 'config')):
-        logging.info('Opening repo at ' + args.repo)
+    if os.path.exists(os.path.join(repository, 'config')):
+        logging.info('Opening repo at ' + repository)
         repo.open()
     else:
-        logging.info('Creating archive-z2 repo at ' + args.repo)
-        os.makedirs(args.repo)
+        logging.info('Creating archive-z2 repo at ' + repository)
+        os.makedirs(repository)
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
     try:
@@ -108,16 +105,16 @@ if __name__ == "__main__":
         repo.transaction_set_ref(None, metadata['ref'], commit)
 
         # Execute the delta
-        flatpak_file = Gio.File.new_for_path(args.flatpak)
+        flatpak_file = Gio.File.new_for_path(flatpak)
         repo.static_delta_execute_offline(flatpak_file, False, None)
 
         # Verify gpg signature
-        if args.gpg_homedir:
-            gpg_homedir = Gio.File.new_for_path(args.gpg_homedir)
+        if gpg_homedir:
+            gpg_homedir = Gio.File.new_for_path(gpg_homedir)
         else:
             gpg_homedir = None
-        if args.keyring:
-            trusted_keyring = Gio.File.new_for_path(args.keyring)
+        if keyring:
+            trusted_keyring = Gio.File.new_for_path(keyring)
         else:
             trusted_keyring = None
         gpg_verify_result = repo.verify_commit_ext(commit,
@@ -141,7 +138,7 @@ if __name__ == "__main__":
     ret, commit_root, commit_checksum = repo.read_commit(metadata['ref'], None)
     if not ret:
         logging.critical("commit failed")
-        sys.exit(1)
+        return False
     else:
         logging.debug("commit_checksum: " + commit_checksum)
 
@@ -159,16 +156,34 @@ if __name__ == "__main__":
                                    ref=metadata['ref'],
                                    checksum=None,
                                    cancellable=None)
-            sys.exit(1)
+            return False
     else:
         logging.critical("no metadata found in commit")
-        sys.exit(1)
+        return False
 
     # Sign the commit
-    if args.sign_key:
-        logging.debug("should sign with key " + args.sign_key)
+    if sign_key:
+        logging.debug("should sign with key " + sign_key)
         ret = repo.sign_commit(commit_checksum=commit,
-                               key_id=args.sign_key,
-                               homedir=args.gpg_homedir,
+                               key_id=sign_key,
+                               homedir=gpg_homedir,
                                cancellable=None)
         logging.debug("sign_commit returned " + str(ret))
+
+
+if __name__ == "__main__":
+    args = _parse_args_and_config()
+
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    elif args.verbose:
+        logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.WARNING)
+
+    if not import_flatpak(args.flatpak,
+                          args.repo,
+                          args.gpg_homedir,
+                          args.keyring,
+                          args.sign_key):
+        sys.exit(1)
