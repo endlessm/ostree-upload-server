@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 from ConfigParser import ConfigParser
 import logging
 import os
-from sys import exit
+import sys
 
 import gi
 gi.require_version('OSTree', '1.0')
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     checksum_variant = delta.get_child_value(3)
     if not OSTree.validate_structureof_csum_v(checksum_variant):
         # Checksum format invalid
-        exit(1)
+        sys.exit(1)
 
     metadata_variant = delta.get_child_value(0)
     logging.debug("metadata keys: {0}".format(metadata_variant.keys()))
@@ -141,7 +141,7 @@ if __name__ == "__main__":
     ret, commit_root, commit_checksum = repo.read_commit(metadata['ref'], None)
     if not ret:
         logging.critical("commit failed")
-        exit(1)
+        sys.exit(1)
     else:
         logging.debug("commit_checksum: " + commit_checksum)
 
@@ -159,10 +159,10 @@ if __name__ == "__main__":
                                    ref=metadata['ref'],
                                    checksum=None,
                                    cancellable=None)
-            exit(1)
+            sys.exit(1)
     else:
         logging.critical("no metadata found in commit")
-        exit(1)
+        sys.exit(1)
 
     # Sign the commit
     if args.sign_key:
