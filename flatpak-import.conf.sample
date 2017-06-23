@@ -7,4 +7,3 @@ keyring=eos-flatpak-keyring.gpg
 
 ; key id for signing received flatpaks, empty for no signing
 sign-key=
-
