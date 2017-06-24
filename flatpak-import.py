@@ -170,6 +170,8 @@ def import_flatpak(flatpak,
                                cancellable=None)
         logging.debug("sign_commit returned " + str(ret))
 
+    return True
+
 
 if __name__ == "__main__":
     args = _parse_args_and_config()
