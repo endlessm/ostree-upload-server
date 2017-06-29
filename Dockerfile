@@ -12,15 +12,18 @@ RUN apt-get update && \
     apt-get dist-upgrade -y && \
     apt-get install -y apt-transport-https \
                        curl \
-                       flatpak
+                       flatpak \
+                       ostree
 
 
 # Keep in line with requirements.txt and setup.py
-RUN apt-get update && apt-get install -y python \
+RUN apt-get update && apt-get install -y gir1.2-ostree-1.0 \
+                                         python \
                                          python-appdirs \
                                          python-click \
                                          python-flask \
                                          python-gevent \
+                                         python-gi \
                                          python-greenlet \
                                          python-itsdangerous \
                                          python-jinja2 \
@@ -49,4 +52,4 @@ RUN mkdir /repo && \
 
 USER ostree-server
 
-CMD ["/bin/sh", "-c", "${INSTALL_DIR}/ostree-upload-server.py /repo"]
+ENTRYPOINT ["/usr/bin/python2", "ostree-upload-server.py", "/repo"]
