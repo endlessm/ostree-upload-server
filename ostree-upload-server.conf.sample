@@ -1,0 +1,17 @@
+[users]
+; leave empty if no authentication is needed
+user1: secret1
+user2: secret2
+
+[remote-test]
+type: dummy
+
+[remote-public]
+type: http
+url: http://ostree-server.invalid:5678/upload
+username: user3
+password: secret3
+
+[remote-public2]
+type: http
+url: http://ostree-server2.invalid:5000/upload
