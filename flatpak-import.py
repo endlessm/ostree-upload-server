@@ -40,7 +40,11 @@ def _parse_args_and_config():
                          help='debug log output')
 
     config = ConfigParser()
-    config.read('flatpak-import.conf')
+    config.read([
+        '/etc/ostree/flatpak-import.conf',
+        os.path.expanduser('~/.config/ostree/flatpak-import.conf'),
+        'flatpak-import.conf'
+    ])
     if config.has_section('defaults'):
         aparser.set_defaults(**dict(config.items('defaults')))
 
