@@ -170,11 +170,17 @@ def import_flatpak(flatpak,
     # Sign the commit
     if sign_key:
         logging.debug("should sign with key " + sign_key)
-        ret = repo.sign_commit(commit_checksum=commit,
-                               key_id=sign_key,
-                               homedir=gpg_homedir,
-                               cancellable=None)
-        logging.debug("sign_commit returned " + str(ret))
+        try:
+            repo.sign_commit(commit_checksum=commit,
+                             key_id=sign_key,
+                             homedir=gpg_homedir,
+                             cancellable=None)
+        except GLib.Error as err:
+            if err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.EXISTS):
+                # Already signed with this key
+                logging.debug("already signed with key " + sign_key)
+            else:
+                raise
 
     return True
 
