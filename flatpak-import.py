@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from ConfigParser import ConfigParser
 import logging
 import os
+import subprocess
 import sys
 
 import gi
@@ -186,6 +187,18 @@ def import_flatpak(flatpak,
     except:
         repo.abort_transaction(None)
         raise
+
+    # Update the repo metadata (summary, appstream, etc), but no
+    # pruning or delta generation to make it fast
+    cmd = ['flatpak', 'build-update-repo']
+    if gpg_homedir:
+        cmd.append('--gpg-homedir=' + gpg_homedir)
+    if sign_key:
+        cmd.append('--gpg-sign=' + sign_key)
+    cmd.append(repository)
+    logging.info('Updating repository metadata')
+    logging.debug('Executing ' + ' '.join(cmd))
+    subprocess.check_call(cmd)
 
 
 if __name__ == "__main__":
