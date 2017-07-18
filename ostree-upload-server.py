@@ -224,7 +224,11 @@ class OstreeUploadServer(object):
 
         push_adapters = {}
         config = SafeConfigParser(allow_no_value = True)
-        config.read('ostree-upload-server.conf')
+        config.read([
+            '/etc/ostree/ostree-upload-server.conf',
+            os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
+            'ostree-upload-server.conf'
+        ])
         for section in config.sections():
             if not section.startswith('remote-'):
                 continue
