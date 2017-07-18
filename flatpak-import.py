@@ -50,6 +50,27 @@ def _parse_args_and_config():
 
     return aparser.parse_args()
 
+
+def _get_metadata_contents(repo, ref):
+    """Read the contents of the commit's metadata file"""
+    _, root, checksum = repo.read_commit(ref)
+    logging.debug("commit_checksum: " + checksum)
+
+    # Get the file and size
+    metadata_file = Gio.File.resolve_relative_path (root, 'metadata');
+    metadata_info = metadata_file.query_info(
+        Gio.FILE_ATTRIBUTE_STANDARD_SIZE, Gio.FileQueryInfoFlags.NONE)
+    metadata_size = metadata_info.get_attribute_uint64(
+        Gio.FILE_ATTRIBUTE_STANDARD_SIZE)
+    logging.debug("metadata file size:" + str(metadata_size))
+
+    # Open it for reading and return the data
+    metadata_stream = metadata_file.read()
+    metadata_bytes = metadata_stream.read_bytes(metadata_size)
+
+    return metadata_bytes.get_data()
+
+
 def import_flatpak(flatpak,
                    repository,
                    gpg_homedir,
@@ -139,20 +160,9 @@ def import_flatpak(flatpak,
         repo.abort_transaction(None)
         raise
 
-    # Grab commit root
-    ret, commit_root, commit_checksum = repo.read_commit(metadata['ref'], None)
-    if not ret:
-        logging.critical("commit failed")
-        return False
-    else:
-        logging.debug("commit_checksum: " + commit_checksum)
-
     # Compare installed and header metadata, remove commit if mismatch
-    metadata_file = Gio.File.resolve_relative_path (commit_root, "metadata");
-    # TODO: GLib-GIO-CRITICAL **: g_file_input_stream_query_info: assertion
-    # 'G_IS_FILE_INPUT_STREAM (stream)' failed
-    ret, metadata_contents, _ = metadata_file.load_contents(cancellable=None)
-    if ret:
+    try:
+        metadata_contents = _get_metadata_contents(repo, metadata['ref'])
         if metadata_contents == metadata['metadata']:
             logging.debug("committed metadata matches the static delta header")
         else:
@@ -162,8 +172,8 @@ def import_flatpak(flatpak,
                                    checksum=None,
                                    cancellable=None)
             return False
-    else:
-        logging.critical("no metadata found in commit")
+    except Exception as err:
+        logging.critical("no metadata found in commit: " + str(err))
         return False
 
     # Sign the commit
