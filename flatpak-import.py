@@ -51,9 +51,9 @@ def _parse_args_and_config():
     return aparser.parse_args()
 
 
-def _get_metadata_contents(repo, ref):
+def _get_metadata_contents(repo, rev):
     """Read the contents of the commit's metadata file"""
-    _, root, checksum = repo.read_commit(ref)
+    _, root, checksum = repo.read_commit(rev)
     logging.debug("commit_checksum: " + checksum)
 
     # Get the file and size
@@ -153,28 +153,19 @@ def import_flatpak(flatpak,
         else:
             raise Exception("no valid signature")
 
+        # Compare installed and header metadata, remove commit if mismatch
+        metadata_contents = _get_metadata_contents(repo, commit)
+        if metadata_contents == metadata['metadata']:
+            logging.debug("committed metadata matches the static delta header")
+        else:
+            raise Exception("committed metadata does not match the static delta header")
+
         # Commit the transaction
         repo.commit_transaction(None)
 
     except:
         repo.abort_transaction(None)
         raise
-
-    # Compare installed and header metadata, remove commit if mismatch
-    try:
-        metadata_contents = _get_metadata_contents(repo, metadata['ref'])
-        if metadata_contents == metadata['metadata']:
-            logging.debug("committed metadata matches the static delta header")
-        else:
-            logging.critical("committed metadata does not match the static delta header")
-            repo.set_ref_immediate(remote=None,
-                                   ref=metadata['ref'],
-                                   checksum=None,
-                                   cancellable=None)
-            return False
-    except Exception as err:
-        logging.critical("no metadata found in commit: " + str(err))
-        return False
 
     # Sign the commit
     if sign_key:
