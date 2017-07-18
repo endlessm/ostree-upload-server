@@ -123,6 +123,13 @@ def import_flatpak(flatpak,
         os.makedirs(repository)
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
+    # See if the ref is already pointed at this commit
+    _, current_rev = repo.resolve_rev(metadata['ref'], allow_noent=True)
+    if current_rev == commit:
+        logging.info('Ref {} already at commit {}'
+                     .format(metadata['ref'], commit))
+        return
+
     try:
         # Prepare transaction
         repo.prepare_transaction(None)
