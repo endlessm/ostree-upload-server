@@ -245,6 +245,11 @@ class OstreeUploadServer(object):
         if config.has_section('users'):
             users = dict(config.items('users'))
 
+        # Perform idle maintenance?
+        do_maintenance = True
+        if config.has_section('server'):
+            do_maintenance = config.getboolean('server', 'maintenance')
+
         webapp = UploadWebApp(__name__,
                               users,
                               self._repo,
@@ -263,6 +268,11 @@ class OstreeUploadServer(object):
                 gsleep(5)
                 task_list.join()
                 logging.debug("task queue empty, " + str(active_upload_counter.get_count()) + " uploads ongoing")
+
+                # Continue looping if maintenance not desired
+                if not do_maintenance:
+                    continue
+
                 time_since_maintenance = time() - latest_maintenance_complete
                 time_since_task = time() - latest_task_complete[0]
                 logging.debug("{:.1f} complete".format(time_since_task))

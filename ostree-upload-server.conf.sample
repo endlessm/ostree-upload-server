@@ -1,3 +1,7 @@
+[server]
+# perform maintenance tasks when idle
+maintenance = true
+
 [users]
 # leave empty if no authentication is needed
 user1 = secret1
