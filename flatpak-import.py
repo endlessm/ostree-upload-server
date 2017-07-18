@@ -90,9 +90,7 @@ def import_flatpak(flatpak,
     # Use get_child_value instead of array index to avoid
     # slowdown (constructing the whole array?)
     checksum_variant = delta.get_child_value(3)
-    if not OSTree.validate_structureof_csum_v(checksum_variant):
-        # Checksum format invalid
-        return False
+    OSTree.validate_structureof_csum_v(checksum_variant)
 
     metadata_variant = delta.get_child_value(0)
     logging.debug("metadata keys: {0}".format(metadata_variant.keys()))
@@ -182,8 +180,6 @@ def import_flatpak(flatpak,
         repo.abort_transaction(None)
         raise
 
-    return True
-
 
 if __name__ == "__main__":
     args = _parse_args_and_config()
@@ -195,9 +191,8 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    if not import_flatpak(args.flatpak,
-                          args.repo,
-                          args.gpg_homedir,
-                          args.keyring,
-                          args.sign_key):
-        sys.exit(1)
+    import_flatpak(args.flatpak,
+                   args.repo,
+                   args.gpg_homedir,
+                   args.keyring,
+                   args.sign_key)
