@@ -41,7 +41,8 @@ def _parse_args_and_config():
 
     config = ConfigParser()
     config.read('flatpak-import.conf')
-    aparser.set_defaults(**dict(config.items('defaults')))
+    if config.has_section('defaults'):
+        aparser.set_defaults(**dict(config.items('defaults')))
 
     return aparser.parse_args()
 
