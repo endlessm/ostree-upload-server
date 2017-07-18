@@ -160,27 +160,27 @@ def import_flatpak(flatpak,
         else:
             raise Exception("committed metadata does not match the static delta header")
 
+        # Sign the commit
+        if sign_key:
+            logging.debug("should sign with key " + sign_key)
+            try:
+                repo.sign_commit(commit_checksum=commit,
+                                 key_id=sign_key,
+                                 homedir=gpg_homedir,
+                                 cancellable=None)
+            except GLib.Error as err:
+                if err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.EXISTS):
+                    # Already signed with this key
+                    logging.debug("already signed with key " + sign_key)
+                else:
+                    raise
+
         # Commit the transaction
         repo.commit_transaction(None)
 
     except:
         repo.abort_transaction(None)
         raise
-
-    # Sign the commit
-    if sign_key:
-        logging.debug("should sign with key " + sign_key)
-        try:
-            repo.sign_commit(commit_checksum=commit,
-                             key_id=sign_key,
-                             homedir=gpg_homedir,
-                             cancellable=None)
-        except GLib.Error as err:
-            if err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.EXISTS):
-                # Already signed with this key
-                logging.debug("already signed with key " + sign_key)
-            else:
-                raise
 
     return True
 
