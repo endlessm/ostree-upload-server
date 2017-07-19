@@ -4,11 +4,13 @@ import argparse
 import atexit
 import logging
 import os
+import shutil
 import tempfile
 import threading
 
 from ConfigParser import SafeConfigParser
 from functools import partial
+from passlib.hash import pbkdf2_sha256
 from time import time
 
 from gevent import Greenlet, queue
@@ -33,8 +35,14 @@ class TaskList:
         self._all_tasks = {}
 
     def add_task(self, task):
+        logging.info('adding task id {}'.format(task.get_id()))
         self._all_tasks[task.get_id()] = task
         self._queue.put(task)
+
+    def get_task(self, id):
+        if not isinstance(id, int):
+            raise Exception('Task IDs must be integers')
+        return self._all_tasks.get(id)
 
     def get_queue(self):
         return self._queue
@@ -64,30 +72,41 @@ class ThreadsafeCounter:
 
 
 class UploadWebApp(Flask):
-    def __init__(self, import_name, users, repo, upload_counter, push_adapters, webapp_callback):
+    def __init__(self, import_name, users, repo, upload_counter,
+                 push_adapters, task_list):
         super(UploadWebApp, self).__init__(import_name)
         self._users = users
         self._repo = repo
         self._upload_counter = upload_counter
         self._push_adapters = push_adapters
-        self._webapp_callback = webapp_callback
+        self._task_list = task_list
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
-        self.route("/push")(self.push)
+        self.route("/push", methods=["GET", "PUT"])(self.push)
 
         self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
-        atexit.register(os.rmdir, self._tempdir)
+        atexit.register(shutil.rmtree, self._tempdir)
 
     def _check_auth(self):
         if not self._users:
             return True
         auth = request.authorization
-        if auth and \
-                auth.username in self._users and \
-                auth.password == self._users.get(auth.username):
-            return True
-        return False
+        if not auth:
+            return False
+        if auth.username not in self._users:
+            return False
+
+        # Check the PBKDF2-SHA256 encrypted password
+        hashed_password = self._users[auth.username]
+        if not pbkdf2_sha256.identify(hashed_password):
+            logging.warning('Hashed password for user {} is not '
+                            'valid for PBKDF2-SHA256 algorithm'
+                            .format(auth.username))
+            return False
+        if not pbkdf2_sha256.verify(auth.password, hashed_password):
+            return False
+        return True
 
     def _authenticate(self):
         """Sends a 401 response that enables basic auth"""
@@ -95,6 +114,38 @@ class UploadWebApp(Flask):
         return Response(
             json.dumps(message), 401,
             {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+    def _get_request_task(self, allowed_task):
+        """Return the state of a requested task
+
+        allowed_task is the allowed BaseTask subclass used for the
+        associated route.
+        """
+        # Parse the task parameter
+        try:
+            task_id = int(request.args['task'])
+        except KeyError:
+            return self._response(400, "task argument required")
+        except ValueError:
+            return self._response(400,
+                                  "task argument must be integer")
+
+        # Lookup the task ID
+        task = self._task_list.get_task(task_id)
+        if task is None:
+            return self._response(404,
+                                  "task {} does not exist"
+                                  .format(task_id))
+
+        if not isinstance(task, allowed_task):
+            return self._response(400,
+                                  "task {} is not a {} task"
+                                  .format(task_id, request.path))
+
+        # Format the task state
+        state = task.get_state_name()
+        msg = 'Task {} state is {}'.format(task_id, state)
+        return self._response(200, msg, state=state)
 
     def index(self):
         return "<a href='{0}'>upload</a>".format(url_for("upload"))
@@ -122,13 +173,20 @@ class UploadWebApp(Flask):
                 os.close(f)
                 upload.save(real_name)
 
-                self._webapp_callback(ReceiveTask(upload.filename, real_name, self._repo))
+                task = ReceiveTask(upload.filename, real_name,
+                                   self._repo)
+                self._task_list.add_task(task)
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
-                # TODO: should return a task ID that can be used to check task status
-                return self._response(200, "Importing bundle")
+                return self._response(200, "Importing bundle",
+                                      task=task.get_id())
+        elif request.method == "GET":
+            logging.debug("/upload: GET request {}"
+                          .format(request.full_path))
+            return self._get_request_task(ReceiveTask)
         else:
-            return self._response(400, "Only POST method is suppported")
+            return self._response(400,
+                                  "Only GET and POST methods supported")
 
     def push(self):
         """
@@ -138,22 +196,38 @@ class UploadWebApp(Flask):
             return self._authenticate()
 
         logging.debug(request.args)
-        try:
-            ref = request.args['ref']
-            remote = request.args['remote']
-        except KeyError:
-            return self._response(400, "ref and remote arguments required")
-        logging.debug("/push: {0} to {1}".format(ref, remote))
-        if not remote in self._push_adapters:
-            return self._response(400, "Remote is not in the whitelist")
-        adapter = self._push_adapters[remote]
-        self._webapp_callback(PushTask(ref, self._repo, ref, adapter, self._tempdir))
-        # TODO: should return a task ID that can be used to check task status
-        return self._response(200, "Pushing {0} to {1}".format(ref, remote))
+        if request.method == 'PUT':
+            try:
+                ref = request.args['ref']
+                remote = request.args['remote']
+            except KeyError:
+                return self._response(400,
+                                      "ref and remote arguments required")
+            logging.debug("/push: {0} to {1}".format(ref, remote))
+            if not remote in self._push_adapters:
+                return self._response(400,
+                                      "Remote is not in the whitelist")
+            adapter = self._push_adapters[remote]
+            task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
+            self._task_list.add_task(task)
+            return self._response(200,
+                                  "Pushing {0} to {1}".format(ref, remote),
+                                  task=task.get_id())
+        elif request.method == "GET":
+            logging.debug("/push: GET request {}"
+                          .format(request.full_path))
+            return self._get_request_task(PushTask)
+        else:
+            return self._response(400,
+                                  "Only GET and PUT methods supported")
 
-    def _response(self, status_code, message):
-        return jsonify( { 'success': status.is_success(status_code),
-                          'message': message } ), status_code
+    def _response(self, status_code, message, **kwargs):
+        body = {
+            'success': status.is_success(status_code),
+            'message': message,
+        }
+        body.update(kwargs)
+        return jsonify(body), status_code
 
 
 class Workers:
@@ -224,7 +298,11 @@ class OstreeUploadServer(object):
 
         push_adapters = {}
         config = SafeConfigParser(allow_no_value = True)
-        config.read('ostree-upload-server.conf')
+        config.read([
+            '/etc/ostree/ostree-upload-server.conf',
+            os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
+            'ostree-upload-server.conf'
+        ])
         for section in config.sections():
             if not section.startswith('remote-'):
                 continue
@@ -237,20 +315,22 @@ class OstreeUploadServer(object):
             else:
                 logging.error("adapter {0}: unknown type {1}".format(remote_name, adapter_type))
 
-        def webapp_callback(task):
-            task_list.add_task(task)
-
         users = None
 
         if config.has_section('users'):
             users = dict(config.items('users'))
+
+        # Perform idle maintenance?
+        do_maintenance = True
+        if config.has_section('server'):
+            do_maintenance = config.getboolean('server', 'maintenance')
 
         webapp = UploadWebApp(__name__,
                               users,
                               self._repo,
                               active_upload_counter,
                               push_adapters,
-                              webapp_callback)
+                              task_list)
 
         http_server = WSGIServer(('', self._port), webapp)
         http_server.start()
@@ -263,6 +343,11 @@ class OstreeUploadServer(object):
                 gsleep(5)
                 task_list.join()
                 logging.debug("task queue empty, " + str(active_upload_counter.get_count()) + " uploads ongoing")
+
+                # Continue looping if maintenance not desired
+                if not do_maintenance:
+                    continue
+
                 time_since_maintenance = time() - latest_maintenance_complete
                 time_since_task = time() - latest_task_complete[0]
                 logging.debug("{:.1f} complete".format(time_since_task))

@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from ConfigParser import ConfigParser
 import logging
 import os
+import subprocess
 import sys
 
 import gi
@@ -40,10 +41,36 @@ def _parse_args_and_config():
                          help='debug log output')
 
     config = ConfigParser()
-    config.read('flatpak-import.conf')
-    aparser.set_defaults(**dict(config.items('defaults')))
+    config.read([
+        '/etc/ostree/flatpak-import.conf',
+        os.path.expanduser('~/.config/ostree/flatpak-import.conf'),
+        'flatpak-import.conf'
+    ])
+    if config.has_section('defaults'):
+        aparser.set_defaults(**dict(config.items('defaults')))
 
     return aparser.parse_args()
+
+
+def _get_metadata_contents(repo, rev):
+    """Read the contents of the commit's metadata file"""
+    _, root, checksum = repo.read_commit(rev)
+    logging.debug("commit_checksum: " + checksum)
+
+    # Get the file and size
+    metadata_file = Gio.File.resolve_relative_path (root, 'metadata');
+    metadata_info = metadata_file.query_info(
+        Gio.FILE_ATTRIBUTE_STANDARD_SIZE, Gio.FileQueryInfoFlags.NONE)
+    metadata_size = metadata_info.get_attribute_uint64(
+        Gio.FILE_ATTRIBUTE_STANDARD_SIZE)
+    logging.debug("metadata file size:" + str(metadata_size))
+
+    # Open it for reading and return the data
+    metadata_stream = metadata_file.read()
+    metadata_bytes = metadata_stream.read_bytes(metadata_size)
+
+    return metadata_bytes.get_data()
+
 
 def import_flatpak(flatpak,
                    repository,
@@ -64,9 +91,7 @@ def import_flatpak(flatpak,
     # Use get_child_value instead of array index to avoid
     # slowdown (constructing the whole array?)
     checksum_variant = delta.get_child_value(3)
-    if not OSTree.validate_structureof_csum_v(checksum_variant):
-        # Checksum format invalid
-        return False
+    OSTree.validate_structureof_csum_v(checksum_variant)
 
     metadata_variant = delta.get_child_value(0)
     logging.debug("metadata keys: {0}".format(metadata_variant.keys()))
@@ -99,6 +124,13 @@ def import_flatpak(flatpak,
         os.makedirs(repository)
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
+    # See if the ref is already pointed at this commit
+    _, current_rev = repo.resolve_rev(metadata['ref'], allow_noent=True)
+    if current_rev == commit:
+        logging.info('Ref {} already at commit {}'
+                     .format(metadata['ref'], commit))
+        return
+
     try:
         # Prepare transaction
         repo.prepare_transaction(None)
@@ -127,6 +159,28 @@ def import_flatpak(flatpak,
         else:
             raise Exception("no valid signature")
 
+        # Compare installed and header metadata, remove commit if mismatch
+        metadata_contents = _get_metadata_contents(repo, commit)
+        if metadata_contents == metadata['metadata']:
+            logging.debug("committed metadata matches the static delta header")
+        else:
+            raise Exception("committed metadata does not match the static delta header")
+
+        # Sign the commit
+        if sign_key:
+            logging.debug("should sign with key " + sign_key)
+            try:
+                repo.sign_commit(commit_checksum=commit,
+                                 key_id=sign_key,
+                                 homedir=gpg_homedir,
+                                 cancellable=None)
+            except GLib.Error as err:
+                if err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.EXISTS):
+                    # Already signed with this key
+                    logging.debug("already signed with key " + sign_key)
+                else:
+                    raise
+
         # Commit the transaction
         repo.commit_transaction(None)
 
@@ -134,43 +188,17 @@ def import_flatpak(flatpak,
         repo.abort_transaction(None)
         raise
 
-    # Grab commit root
-    ret, commit_root, commit_checksum = repo.read_commit(metadata['ref'], None)
-    if not ret:
-        logging.critical("commit failed")
-        return False
-    else:
-        logging.debug("commit_checksum: " + commit_checksum)
-
-    # Compare installed and header metadata, remove commit if mismatch
-    metadata_file = Gio.File.resolve_relative_path (commit_root, "metadata");
-    # TODO: GLib-GIO-CRITICAL **: g_file_input_stream_query_info: assertion
-    # 'G_IS_FILE_INPUT_STREAM (stream)' failed
-    ret, metadata_contents, _ = metadata_file.load_contents(cancellable=None)
-    if ret:
-        if metadata_contents == metadata['metadata']:
-            logging.debug("committed metadata matches the static delta header")
-        else:
-            logging.critical("committed metadata does not match the static delta header")
-            repo.set_ref_immediate(remote=None,
-                                   ref=metadata['ref'],
-                                   checksum=None,
-                                   cancellable=None)
-            return False
-    else:
-        logging.critical("no metadata found in commit")
-        return False
-
-    # Sign the commit
+    # Update the repo metadata (summary, appstream, etc), but no
+    # pruning or delta generation to make it fast
+    cmd = ['flatpak', 'build-update-repo']
+    if gpg_homedir:
+        cmd.append('--gpg-homedir=' + gpg_homedir)
     if sign_key:
-        logging.debug("should sign with key " + sign_key)
-        ret = repo.sign_commit(commit_checksum=commit,
-                               key_id=sign_key,
-                               homedir=gpg_homedir,
-                               cancellable=None)
-        logging.debug("sign_commit returned " + str(ret))
-
-    return True
+        cmd.append('--gpg-sign=' + sign_key)
+    cmd.append(repository)
+    logging.info('Updating repository metadata')
+    logging.debug('Executing ' + ' '.join(cmd))
+    subprocess.check_call(cmd)
 
 
 if __name__ == "__main__":
@@ -183,9 +211,8 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    if not import_flatpak(args.flatpak,
-                          args.repo,
-                          args.gpg_homedir,
-                          args.keyring,
-                          args.sign_key):
-        sys.exit(1)
+    import_flatpak(args.flatpak,
+                   args.repo,
+                   args.gpg_homedir,
+                   args.keyring,
+                   args.sign_key)

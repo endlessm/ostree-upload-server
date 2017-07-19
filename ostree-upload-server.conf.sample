@@ -1,17 +1,22 @@
+[server]
+# perform maintenance tasks when idle
+maintenance = true
+
 [users]
-; leave empty if no authentication is needed
-user1: secret1
-user2: secret2
+# leave empty if no authentication is needed
+# passwords are encrypted using PBKDF2-SHA256
+user1 = $pbkdf2-sha256$29000$Maa01jqH0DoHQCiF0FoLoQ$9h4tyFdzD2XnV1MsOjkYjgler55Es4jIxUtyWDnGmxM
+user2 = $pbkdf2-sha256$29000$DyFE6P1fy1kLIQTA2DtnLA$gahi5rfSSxzDoEOEVmzPIufN.PV7NQ.kXAXhvxZlx10
 
 [remote-test]
-type: dummy
+type = dummy
 
 [remote-public]
-type: http
-url: http://ostree-server.invalid:5678/upload
-username: user3
-password: secret3
+type = http
+url = http://ostree-server.invalid:5678/upload
+username = user3
+password = secret3
 
 [remote-public2]
-type: http
-url: http://ostree-server2.invalid:5000/upload
+type = http
+url = http://ostree-server2.invalid:5000/upload

@@ -11,6 +11,23 @@ from repolock import RepoLock
 class TaskState:
     PENDING, PROCESSING, COMPLETED, FAILED = range(4)
 
+    @staticmethod
+    def name(state):
+        """Return the name of the state"""
+        # There's almost certainly a better way to do this. On py3
+        # there's enum, but here we'll just inline it.
+        if state == TaskState.PENDING:
+            return 'PENDING'
+        elif state == TaskState.PROCESSING:
+            return 'PROCESSING'
+        elif state == TaskState.COMPLETED:
+            return 'COMPLETED'
+        elif state == TaskState.FAILED:
+            return 'FAILED'
+        else:
+            raise Exception('Unrecognized task state {}'
+                            .format(state))
+
 
 class BaseTask(object):
     _next_task_id = 0
@@ -34,6 +51,9 @@ class BaseTask(object):
     def get_state(self):
         return self._state
 
+    def get_state_name(self):
+        return TaskState.name(self._state)
+
     def get_id(self):
         return self._task_id
 
@@ -54,16 +74,18 @@ class ReceiveTask(BaseTask):
                                        self._repo,
                                        self._upload],
                                       stderr=STDOUT)
-                os.unlink(self._upload)
                 self.set_state(TaskState.COMPLETED)
                 logging.info("completed task " + self.get_name())
                 logging.error("task output: " + output)
             except CalledProcessError as e:
-                # TODO: failed tasks should be handled - for now,
-                # don't delete the upload
                 self.set_state(TaskState.FAILED)
                 logging.error("failed task " + self.get_name())
                 logging.error("task output: " + e.output)
+            finally:
+                # TODO: uploads are always deleted for now, but in the
+                # future it might want to be kept for inspection for
+                # failed tasks
+                os.unlink(self._upload)
 
 
 class PushTask(BaseTask):
