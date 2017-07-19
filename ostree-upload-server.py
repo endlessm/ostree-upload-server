@@ -4,6 +4,7 @@ import argparse
 import atexit
 import logging
 import os
+import shutil
 import tempfile
 import threading
 
@@ -80,7 +81,7 @@ class UploadWebApp(Flask):
         self.route("/push")(self.push)
 
         self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
-        atexit.register(os.rmdir, self._tempdir)
+        atexit.register(shutil.rmtree, self._tempdir)
 
     def _check_auth(self):
         if not self._users:
