@@ -135,13 +135,13 @@ class UploadWebApp(Flask):
                 os.close(f)
                 upload.save(real_name)
 
-                self._task_list.add_task(ReceiveTask(upload.filename,
-                                                     real_name,
-                                                     self._repo))
+                task = ReceiveTask(upload.filename, real_name,
+                                   self._repo)
+                self._task_list.add_task(task)
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
-                # TODO: should return a task ID that can be used to check task status
-                return self._response(200, "Importing bundle")
+                return self._response(200, "Importing bundle",
+                                      task=task.get_id())
         else:
             return self._response(400, "Only POST method is suppported")
 
@@ -162,10 +162,10 @@ class UploadWebApp(Flask):
         if not remote in self._push_adapters:
             return self._response(400, "Remote is not in the whitelist")
         adapter = self._push_adapters[remote]
-        self._task_list.add_task(PushTask(ref, self._repo, ref,
-                                          adapter, self._tempdir))
-        # TODO: should return a task ID that can be used to check task status
-        return self._response(200, "Pushing {0} to {1}".format(ref, remote))
+        task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
+        self._task_list.add_task(task)
+        return self._response(200, "Pushing {0} to {1}".format(ref, remote),
+                              task=task.get_id())
 
     def _response(self, status_code, message, **kwargs):
         body = {
