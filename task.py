@@ -51,6 +51,9 @@ class BaseTask(object):
     def get_state(self):
         return self._state
 
+    def get_state_name(self):
+        return TaskState.name(self._state)
+
     def get_id(self):
         return self._task_id
 
