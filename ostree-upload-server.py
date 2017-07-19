@@ -83,7 +83,7 @@ class UploadWebApp(Flask):
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
-        self.route("/push", methods=["PUT"])(self.push)
+        self.route("/push", methods=["GET", "PUT"])(self.push)
 
         self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
         atexit.register(shutil.rmtree, self._tempdir)
@@ -114,6 +114,38 @@ class UploadWebApp(Flask):
         return Response(
             json.dumps(message), 401,
             {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+    def _get_request_task(self, allowed_task):
+        """Return the state of a requested task
+
+        allowed_task is the allowed BaseTask subclass used for the
+        associated route.
+        """
+        # Parse the task parameter
+        try:
+            task_id = int(request.args['task'])
+        except KeyError:
+            return self._response(400, "task argument required")
+        except ValueError:
+            return self._response(400,
+                                  "task argument must be integer")
+
+        # Lookup the task ID
+        task = self._task_list.get_task(task_id)
+        if task is None:
+            return self._response(404,
+                                  "task {} does not exist"
+                                  .format(task_id))
+
+        if not isinstance(task, allowed_task):
+            return self._response(400,
+                                  "task {} is not a {} task"
+                                  .format(task_id, request.path))
+
+        # Format the task state
+        state = task.get_state_name()
+        msg = 'Task {} state is {}'.format(task_id, state)
+        return self._response(200, msg, state=state)
 
     def index(self):
         return "<a href='{0}'>upload</a>".format(url_for("upload"))
@@ -148,8 +180,13 @@ class UploadWebApp(Flask):
 
                 return self._response(200, "Importing bundle",
                                       task=task.get_id())
+        elif request.method == "GET":
+            logging.debug("/upload: GET request {}"
+                          .format(request.full_path))
+            return self._get_request_task(ReceiveTask)
         else:
-            return self._response(400, "Only POST method is suppported")
+            return self._response(400,
+                                  "Only GET and POST methods supported")
 
     def push(self):
         """
@@ -176,8 +213,13 @@ class UploadWebApp(Flask):
             return self._response(200,
                                   "Pushing {0} to {1}".format(ref, remote),
                                   task=task.get_id())
+        elif request.method == "GET":
+            logging.debug("/push: GET request {}"
+                          .format(request.full_path))
+            return self._get_request_task(PushTask)
         else:
-            return self._response(400, "Only PUT method supported")
+            return self._response(400,
+                                  "Only GET and PUT methods supported")
 
     def _response(self, status_code, message, **kwargs):
         body = {
