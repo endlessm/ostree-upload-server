@@ -20,3 +20,9 @@ To upload a file with curl:
 
   # curl -F "file=@/path/to/app.bundle" -u user:secret http://localhost:5000/upload
 
+Note the task ID in the returned JSON. Now poll the task:
+
+  # curl -u user:secret "http://localhost:5000/upload?task=$TASK_ID"
+
+Note the state in the returned JSON. When the state is COMPLETED or FAILED,
+the task has completed.
