@@ -403,9 +403,9 @@ if __name__=='__main__':
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     elif args.verbose:
-        logging.basicConfig(level=logging.VERBOSE)
-    else:
         logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.WARNING)
 
     OstreeUploadServer(args.repo,
                        args.port,
