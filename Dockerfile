@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y gir1.2-ostree-1.0 \
                                          python-jinja2 \
                                          python-markupsafe \
                                          python-packaging \
+                                         python-passlib \
                                          python-requests-toolbelt \
                                          python-six \
                                          python-werkzeug

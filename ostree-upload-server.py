@@ -9,6 +9,7 @@ import threading
 
 from ConfigParser import SafeConfigParser
 from functools import partial
+from passlib.hash import pbkdf2_sha256
 from time import time
 
 from gevent import Greenlet, queue
@@ -83,11 +84,21 @@ class UploadWebApp(Flask):
         if not self._users:
             return True
         auth = request.authorization
-        if auth and \
-                auth.username in self._users and \
-                auth.password == self._users.get(auth.username):
-            return True
-        return False
+        if not auth:
+            return False
+        if auth.username not in self._users:
+            return False
+
+        # Check the PBKDF2-SHA256 encrypted password
+        hashed_password = self._users[auth.username]
+        if not pbkdf2_sha256.identify(hashed_password):
+            logging.warning('Hashed password for user {} is not '
+                            'valid for PBKDF2-SHA256 algorithm'
+                            .format(auth.username))
+            return False
+        if not pbkdf2_sha256.verify(auth.password, hashed_password):
+            return False
+        return True
 
     def _authenticate(self):
         """Sends a 401 response that enables basic auth"""
