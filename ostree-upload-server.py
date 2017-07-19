@@ -34,6 +34,7 @@ class TaskList:
         self._all_tasks = {}
 
     def add_task(self, task):
+        logging.info('adding task id {}'.format(task.get_id()))
         self._all_tasks[task.get_id()] = task
         self._queue.put(task)
 
@@ -65,13 +66,14 @@ class ThreadsafeCounter:
 
 
 class UploadWebApp(Flask):
-    def __init__(self, import_name, users, repo, upload_counter, push_adapters, webapp_callback):
+    def __init__(self, import_name, users, repo, upload_counter,
+                 push_adapters, task_list):
         super(UploadWebApp, self).__init__(import_name)
         self._users = users
         self._repo = repo
         self._upload_counter = upload_counter
         self._push_adapters = push_adapters
-        self._webapp_callback = webapp_callback
+        self._task_list = task_list
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
@@ -133,7 +135,9 @@ class UploadWebApp(Flask):
                 os.close(f)
                 upload.save(real_name)
 
-                self._webapp_callback(ReceiveTask(upload.filename, real_name, self._repo))
+                self._task_list.add_task(ReceiveTask(upload.filename,
+                                                     real_name,
+                                                     self._repo))
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
                 # TODO: should return a task ID that can be used to check task status
@@ -158,7 +162,8 @@ class UploadWebApp(Flask):
         if not remote in self._push_adapters:
             return self._response(400, "Remote is not in the whitelist")
         adapter = self._push_adapters[remote]
-        self._webapp_callback(PushTask(ref, self._repo, ref, adapter, self._tempdir))
+        self._task_list.add_task(PushTask(ref, self._repo, ref,
+                                          adapter, self._tempdir))
         # TODO: should return a task ID that can be used to check task status
         return self._response(200, "Pushing {0} to {1}".format(ref, remote))
 
@@ -252,9 +257,6 @@ class OstreeUploadServer(object):
             else:
                 logging.error("adapter {0}: unknown type {1}".format(remote_name, adapter_type))
 
-        def webapp_callback(task):
-            task_list.add_task(task)
-
         users = None
 
         if config.has_section('users'):
@@ -270,7 +272,7 @@ class OstreeUploadServer(object):
                               self._repo,
                               active_upload_counter,
                               push_adapters,
-                              webapp_callback)
+                              task_list)
 
         http_server = WSGIServer(('', self._port), webapp)
         http_server.start()
