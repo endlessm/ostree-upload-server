@@ -39,6 +39,11 @@ class TaskList:
         self._all_tasks[task.get_id()] = task
         self._queue.put(task)
 
+    def get_task(self, id):
+        if not isinstance(id, int):
+            raise Exception('Task IDs must be integers')
+        return self._all_tasks.get(id)
+
     def get_queue(self):
         return self._queue
 
