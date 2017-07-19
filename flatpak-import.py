@@ -2,6 +2,7 @@
 
 from argparse import ArgumentParser
 from ConfigParser import ConfigParser
+import errno
 import logging
 import os
 import subprocess
@@ -121,7 +122,11 @@ def import_flatpak(flatpak,
         repo.open()
     else:
         logging.info('Creating archive-z2 repo at ' + repository)
-        os.makedirs(repository)
+        try:
+            os.makedirs(repository)
+        except OSError as err:
+            if err.errno != errno.EEXIST:
+                raise
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
     # See if the ref is already pointed at this commit
