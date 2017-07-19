@@ -11,6 +11,23 @@ from repolock import RepoLock
 class TaskState:
     PENDING, PROCESSING, COMPLETED, FAILED = range(4)
 
+    @staticmethod
+    def name(state):
+        """Return the name of the state"""
+        # There's almost certainly a better way to do this. On py3
+        # there's enum, but here we'll just inline it.
+        if state == TaskState.PENDING:
+            return 'PENDING'
+        elif state == TaskState.PROCESSING:
+            return 'PROCESSING'
+        elif state == TaskState.COMPLETED:
+            return 'COMPLETED'
+        elif state == TaskState.FAILED:
+            return 'FAILED'
+        else:
+            raise Exception('Unrecognized task state {}'
+                            .format(state))
+
 
 class BaseTask(object):
     _next_task_id = 0
