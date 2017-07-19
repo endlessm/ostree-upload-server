@@ -167,9 +167,13 @@ class UploadWebApp(Flask):
         # TODO: should return a task ID that can be used to check task status
         return self._response(200, "Pushing {0} to {1}".format(ref, remote))
 
-    def _response(self, status_code, message):
-        return jsonify( { 'success': status.is_success(status_code),
-                          'message': message } ), status_code
+    def _response(self, status_code, message, **kwargs):
+        body = {
+            'success': status.is_success(status_code),
+            'message': message,
+        }
+        body.update(kwargs)
+        return jsonify(body), status_code
 
 
 class Workers:
