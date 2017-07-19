@@ -78,7 +78,7 @@ class UploadWebApp(Flask):
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
-        self.route("/push")(self.push)
+        self.route("/push", methods=["PUT"])(self.push)
 
         self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
         atexit.register(shutil.rmtree, self._tempdir)
@@ -154,19 +154,25 @@ class UploadWebApp(Flask):
             return self._authenticate()
 
         logging.debug(request.args)
-        try:
-            ref = request.args['ref']
-            remote = request.args['remote']
-        except KeyError:
-            return self._response(400, "ref and remote arguments required")
-        logging.debug("/push: {0} to {1}".format(ref, remote))
-        if not remote in self._push_adapters:
-            return self._response(400, "Remote is not in the whitelist")
-        adapter = self._push_adapters[remote]
-        task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
-        self._task_list.add_task(task)
-        return self._response(200, "Pushing {0} to {1}".format(ref, remote),
-                              task=task.get_id())
+        if request.method == 'PUT':
+            try:
+                ref = request.args['ref']
+                remote = request.args['remote']
+            except KeyError:
+                return self._response(400,
+                                      "ref and remote arguments required")
+            logging.debug("/push: {0} to {1}".format(ref, remote))
+            if not remote in self._push_adapters:
+                return self._response(400,
+                                      "Remote is not in the whitelist")
+            adapter = self._push_adapters[remote]
+            task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
+            self._task_list.add_task(task)
+            return self._response(200,
+                                  "Pushing {0} to {1}".format(ref, remote),
+                                  task=task.get_id())
+        else:
+            return self._response(400, "Only PUT method supported")
 
     def _response(self, status_code, message, **kwargs):
         body = {
