@@ -54,16 +54,18 @@ class ReceiveTask(BaseTask):
                                        self._repo,
                                        self._upload],
                                       stderr=STDOUT)
-                os.unlink(self._upload)
                 self.set_state(TaskState.COMPLETED)
                 logging.info("completed task " + self.get_name())
                 logging.error("task output: " + output)
             except CalledProcessError as e:
-                # TODO: failed tasks should be handled - for now,
-                # don't delete the upload
                 self.set_state(TaskState.FAILED)
                 logging.error("failed task " + self.get_name())
                 logging.error("task output: " + e.output)
+            finally:
+                # TODO: uploads are always deleted for now, but in the
+                # future it might want to be kept for inspection for
+                # failed tasks
+                os.unlink(self._upload)
 
 
 class PushTask(BaseTask):
