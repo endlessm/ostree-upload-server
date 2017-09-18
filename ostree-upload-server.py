@@ -85,7 +85,9 @@ class UploadWebApp(Flask):
         self.route("/upload", methods=["GET", "POST"])(self.upload)
         self.route("/push", methods=["GET", "PUT"])(self.push)
 
-        self._tempdir = tempfile.mkdtemp(prefix="ostree-upload-server-")
+        # These files might be huge and /tmp might be mounted on tmpfs
+        # so to avoid RAM exhaustion, we use /var/tmp
+        self._tempdir = tempfile.mkdtemp(dir="/var/tmp", prefix="ostree-upload-server-")
         atexit.register(shutil.rmtree, self._tempdir)
 
     def _check_auth(self):
