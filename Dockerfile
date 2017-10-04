@@ -46,7 +46,7 @@ WORKDIR $INSTALL_DIR
 RUN groupadd -r -g 800 ostree-server && \
     useradd -r -u 800 -g 800 ostree-server
 
-ADD . $INSTALL_DIR
+COPY . $INSTALL_DIR
 RUN chown -R ostree-server:ostree-server $INSTALL_DIR && \
     chmod +x $INSTALL_DIR/ostree-upload-server.py
 

@@ -6,14 +6,12 @@ import logging
 import os
 import shutil
 import tempfile
-import threading
 
 from ConfigParser import SafeConfigParser
 from functools import partial
-from passlib.hash import pbkdf2_sha256
 from time import time
 
-from gevent import Greenlet, queue
+from gevent import Greenlet
 from gevent import sleep as gsleep
 from gevent.event import Event
 from gevent.pywsgi import WSGIServer
@@ -26,60 +24,27 @@ from push_adapters import adapter_types
 from repolock import RepoLock
 from task import TaskState, ReceiveTask, PushTask
 
+from ostree_upload_server.authenticator import Authenticator
+from ostree_upload_server.task_queue import TaskQueue
+from ostree_upload_server.threadsafe_counter import ThreadsafeCounter
+from ostree_upload_server.worker_pool_executor import WorkerPoolExecutor
+
+
+DEFAULT_LISTEN_PORT = 5000
 MAINTENANCE_WAIT = 10
 
-
-class TaskList:
-    def __init__(self):
-        self._queue = queue.JoinableQueue()
-        self._all_tasks = {}
-
-    def add_task(self, task):
-        logging.info('adding task id {}'.format(task.get_id()))
-        self._all_tasks[task.get_id()] = task
-        self._queue.put(task)
-
-    def get_task(self, id):
-        if not isinstance(id, int):
-            raise Exception('Task IDs must be integers')
-        return self._all_tasks.get(id)
-
-    def get_queue(self):
-        return self._queue
-
-    def join(self, timeout=None):
-        return self._queue.join(timeout)
-
-
-class ThreadsafeCounter:
-    def __init__(self):
-        self._count = 0
-        self._count_lock = threading.Lock()
-
-    def __enter__(self):
-        with self._count_lock:
-            self._count += 1
-            logging.debug("counter now " + str(self._count))
-            return self._count
-
-    def __exit__(self, type, value, traceback):
-        with self._count_lock:
-            self._count -= 1
-            logging.debug("counter now " + str(self._count))
-
-    def get_count(self):
-        return self._count
+global latest_task_complete
 
 
 class UploadWebApp(Flask):
     def __init__(self, import_name, users, repo, upload_counter,
-                 push_adapters, task_list):
+                 push_adapters, task_queue):
         super(UploadWebApp, self).__init__(import_name)
-        self._users = users
+        self._authenticator = Authenticator(users)
         self._repo = repo
         self._upload_counter = upload_counter
         self._push_adapters = push_adapters
-        self._task_list = task_list
+        self._task_queue = task_queue
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
@@ -90,32 +55,13 @@ class UploadWebApp(Flask):
         self._tempdir = tempfile.mkdtemp(dir="/var/tmp", prefix="ostree-upload-server-")
         atexit.register(shutil.rmtree, self._tempdir)
 
-    def _check_auth(self):
-        if not self._users:
-            return True
-        auth = request.authorization
-        if not auth:
-            return False
-        if auth.username not in self._users:
-            return False
-
-        # Check the PBKDF2-SHA256 encrypted password
-        hashed_password = self._users[auth.username]
-        if not pbkdf2_sha256.identify(hashed_password):
-            logging.warning('Hashed password for user {} is not '
-                            'valid for PBKDF2-SHA256 algorithm'
-                            .format(auth.username))
-            return False
-        if not pbkdf2_sha256.verify(auth.password, hashed_password):
-            return False
-        return True
-
-    def _authenticate(self):
+    def _request_authentication(self):
         """Sends a 401 response that enables basic auth"""
-        message = { 'success': False, 'message': "Authentication required" }
-        return Response(
-            json.dumps(message), 401,
-            {'WWW-Authenticate': 'Basic realm="Login Required"'})
+        auth_message = { 'success': False,
+                         'message': "Authentication required" }
+        return Response(json.dumps(auth_message),
+                        401,
+                        {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
     def _get_request_task(self, allowed_task):
         """Return the state of a requested task
@@ -127,22 +73,21 @@ class UploadWebApp(Flask):
         try:
             task_id = int(request.args['task'])
         except KeyError:
-            return self._response(400, "task argument required")
+            return self._response(400, "Task argument required")
         except ValueError:
-            return self._response(400,
-                                  "task argument must be integer")
+            return self._response(400, "Task argument must be integer")
 
         # Lookup the task ID
-        task = self._task_list.get_task(task_id)
+        task = self._task_queue.get_task(task_id)
+
         if task is None:
             return self._response(404,
-                                  "task {} does not exist"
-                                  .format(task_id))
+                                  "task {} does not exist".format(task_id))
 
         if not isinstance(task, allowed_task):
             return self._response(400,
-                                  "task {} is not a {} task"
-                                  .format(task_id, request.path))
+                                  "Task {} is not a {} task".format(task_id,
+                                                                    request.path))
 
         # Format the task state
         state = task.get_state_name()
@@ -150,15 +95,16 @@ class UploadWebApp(Flask):
         return self._response(200, msg, state=state)
 
     def index(self):
-        return "<a href='{0}'>upload</a>".format(url_for("upload"))
-        return "<a href='{0}'>push</a>".format(url_for("push"))
+        links = "<a href='{0}'>upload</a>".format(url_for("upload"))
+        links += "\n<a href='{0}'>upload</a>".format(url_for("upload"))
+        return links
 
     def upload(self):
         """
         Receive a flatpak bundle
         """
-        if not self._check_auth():
-            return self._authenticate()
+        if not self._authenticator.authenticate(request):
+            return self._request_authentication()
 
         if request.method == "POST":
             logging.debug("/upload: POST request start")
@@ -177,7 +123,7 @@ class UploadWebApp(Flask):
 
                 task = ReceiveTask(upload.filename, real_name,
                                    self._repo)
-                self._task_list.add_task(task)
+                self._task_queue.add_task(task)
                 logging.debug("/upload: POST request completed for " + upload.filename)
 
                 return self._response(200, "Importing bundle",
@@ -194,8 +140,8 @@ class UploadWebApp(Flask):
         """
         Extract a flatpak bundle from local repository and push to a remote
         """
-        if not self._check_auth():
-            return self._authenticate()
+        if not self._authenticator.authenticate(request):
+            return self._request_authentication()
 
         logging.debug(request.args)
         if request.method == 'PUT':
@@ -211,7 +157,7 @@ class UploadWebApp(Flask):
                                       "Remote is not in the whitelist")
             adapter = self._push_adapters[remote]
             task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
-            self._task_list.add_task(task)
+            self._task_queue.add_task(task)
             return self._response(200,
                                   "Pushing {0} to {1}".format(ref, remote),
                                   task=task.get_id())
@@ -232,47 +178,6 @@ class UploadWebApp(Flask):
         return jsonify(body), status_code
 
 
-class Workers:
-    def __init__(self, completed_callback):
-        self._workers = []
-        self._completed_callback = completed_callback
-
-    def start(self, task_list, worker_count=4):
-        self._exit_event = Event()
-        for _ in range(worker_count):
-            worker = Greenlet.spawn(self._work,
-                                    task_list.get_queue(),
-                                    self._exit_event)
-            self._workers.append(worker)
-
-    def stop(self):
-        self._exit_event.set()
-
-        for worker in self._workers:
-            worker.join()
-
-        self._exit_event.clear()
-
-    def _work(self, task_queue, exit_event):
-        global latest_task_complete
-
-        count = 0
-        logging.debug("worker started")
-
-        while not self._exit_event.is_set():
-            try:
-                task = task_queue.get(timeout=1)
-                task.run()
-                task_queue.task_done()
-                self._completed_callback()
-
-                count += 1
-            except queue.Empty:
-                pass
-
-        logging.info("worker shutdown, " + str(count) + " items processed")
-
-
 class OstreeUploadServer(object):
     def __init__(self, repo_path, port, workers):
         self._repo = repo_path
@@ -285,7 +190,7 @@ class OstreeUploadServer(object):
         latest_maintenance_complete = time()
         active_upload_counter = ThreadsafeCounter()
 
-        task_list = TaskList()
+        task_queue = TaskQueue()
 
         logging.info("Starting server on %d..." % self._port)
 
@@ -295,8 +200,8 @@ class OstreeUploadServer(object):
             logging.debug("task completed callback %s", latest_task_complete)
             latest_task_complete[:] = [time()]
 
-        workers = Workers(partial(completed_callback, latest_task_complete))
-        workers.start(task_list, self._workers)
+        workers = WorkerPoolExecutor(partial(completed_callback, latest_task_complete))
+        workers.start(task_queue, self._workers)
 
         push_adapters = {}
         config = SafeConfigParser(allow_no_value = True)
@@ -332,7 +237,7 @@ class OstreeUploadServer(object):
                               self._repo,
                               active_upload_counter,
                               push_adapters,
-                              task_list)
+                              task_queue)
 
         http_server = WSGIServer(('', self._port), webapp)
         http_server.start()
@@ -343,8 +248,8 @@ class OstreeUploadServer(object):
         while True:
             try:
                 gsleep(5)
-                task_list.join()
-                logging.debug("task queue empty, " + str(active_upload_counter.get_count()) + " uploads ongoing")
+                task_queue.join()
+                logging.debug("task queue empty, " + str(active_upload_counter.count) + " uploads ongoing")
 
                 # Continue looping if maintenance not desired
                 if not do_maintenance:
@@ -377,7 +282,7 @@ class OstreeUploadServer(object):
                                 logging.error(e)
 
                         latest_maintenance_complete = time()
-                        workers.start(task_list, self._workers)
+                        workers.start(task_queue, self._workers)
 
             except (KeyboardInterrupt, SystemExit):
                 break
@@ -391,15 +296,21 @@ class OstreeUploadServer(object):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("-w", "--workers", type=int, default=4,
-                        help="number of uploads to process in parallel")
-    parser.add_argument("-p", "--port", type=int, default=5000,
+
+    parser.add_argument("repo",
+                        help="OSTree repository")
+    parser.add_argument("-w", "--workers", type=int,
+                        default=WorkerPoolExecutor.DEFAULT_WORKER_COUNT,
+                        help="Number of uploads to process in parallel")
+    parser.add_argument("-p", "--port", type=int,
+                        default=DEFAULT_LISTEN_PORT,
                         help="HTTP server listen port")
-    parser.add_argument("repo", help="OSTree repository")
-    parser.add_argument("-v", "--verbose", help="output informational messages",
-                    action="store_true")
-    parser.add_argument("-d", "--debug", help="output debug messages",
-                    action="store_true")
+
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Output informational messages")
+    parser.add_argument("-d", "--debug", action="store_true",
+                        help="Output debug messages")
+
     args = parser.parse_args()
 
     if args.debug:
@@ -409,6 +320,4 @@ if __name__=='__main__':
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    OstreeUploadServer(args.repo,
-                       args.port,
-                       args.workers).run()
+    OstreeUploadServer(args.repo, args.port, args.workers).run()
