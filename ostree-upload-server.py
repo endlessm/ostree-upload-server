@@ -20,11 +20,14 @@ from gevent.subprocess import check_output, CalledProcessError, STDOUT
 from flask import Flask, json, jsonify, request, Response, url_for
 from flask_api import status
 
-from push_adapters import adapter_types
-from repolock import RepoLock
-from task import TaskState, ReceiveTask, PushTask
-
 from ostree_upload_server.authenticator import Authenticator
+from ostree_upload_server.push_adapter.dummy import DummyPushAdapter
+from ostree_upload_server.push_adapter.http import HttpPushAdapter
+from ostree_upload_server.push_adapter.scp import ScpPushAdapter
+from ostree_upload_server.repolock import RepoLock
+from ostree_upload_server.task.push import PushTask
+from ostree_upload_server.task.receive import ReceiveTask
+from ostree_upload_server.task.state import TaskState
 from ostree_upload_server.task_queue import TaskQueue
 from ostree_upload_server.threadsafe_counter import ThreadsafeCounter
 from ostree_upload_server.worker_pool_executor import WorkerPoolExecutor
@@ -38,12 +41,12 @@ global latest_task_complete
 
 class UploadWebApp(Flask):
     def __init__(self, import_name, users, repo, upload_counter,
-                 push_adapters, task_queue):
+                 remote_push_adapter_map, task_queue):
         super(UploadWebApp, self).__init__(import_name)
         self._authenticator = Authenticator(users)
         self._repo = repo
         self._upload_counter = upload_counter
-        self._push_adapters = push_adapters
+        self._remote_push_adapter_map = remote_push_adapter_map
         self._task_queue = task_queue
 
         self.route("/")(self.index)
@@ -152,10 +155,10 @@ class UploadWebApp(Flask):
                 return self._response(400,
                                       "ref and remote arguments required")
             logging.debug("/push: {0} to {1}".format(ref, remote))
-            if not remote in self._push_adapters:
+            if not remote in self._remote_push_adapter_map:
                 return self._response(400,
                                       "Remote is not in the whitelist")
-            adapter = self._push_adapters[remote]
+            adapter = self._remote_push_adapter_map[remote]
             task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
             self._task_queue.add_task(task)
             return self._response(200,
@@ -179,10 +182,22 @@ class UploadWebApp(Flask):
 
 
 class OstreeUploadServer(object):
+    CONFIG_LOCATIONS = [ '/etc/ostree/ostree-upload-server.conf',
+                         os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
+                         'ostree-upload-server.conf' ]
+
+    ADAPTER_IMPL_CLASSES = [ DummyPushAdapter,
+                             HttpPushAdapter,
+                             ScpPushAdapter ]
+
     def __init__(self, repo_path, port, workers):
         self._repo = repo_path
         self._port = port
         self._workers = workers
+
+        self._adapters = {}
+        for adapter_impl_class in OstreeUploadServer.ADAPTER_IMPL_CLASSES:
+            self._adapters[adapter_impl_class.name] = adapter_impl_class
 
     def run(self):
         # Array since we need to pass by ref
@@ -203,22 +218,23 @@ class OstreeUploadServer(object):
         workers = WorkerPoolExecutor(partial(completed_callback, latest_task_complete))
         workers.start(task_queue, self._workers)
 
-        push_adapters = {}
+        remote_push_adapter_map = {}
+
         config = SafeConfigParser(allow_no_value = True)
-        config.read([
-            '/etc/ostree/ostree-upload-server.conf',
-            os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
-            'ostree-upload-server.conf'
-        ])
+        config.read(OstreeUploadServer.CONFIG_LOCATIONS)
+
         for section in config.sections():
             if not section.startswith('remote-'):
                 continue
             remote_dict = dict(config.items(section))
             remote_name = section.split('-')[1]
             adapter_type = remote_dict['type']
-            if adapter_type in adapter_types:
-                logging.debug("setting up adapter {0}, type {1}".format(remote_name, adapter_type))
-                push_adapters[remote_name] = (adapter_types[adapter_type])(remote_name, remote_dict)
+            if adapter_type in self._adapters.keys():
+                logging.debug("Setting up adapter {0}, type {1}".format(remote_name,
+                                                                        adapter_type))
+                adapter_impl_class = self._adapters[adapter_type]
+                remote_push_adapter_map[remote_name] = adapter_impl_class(remote_name,
+                                                                          remote_dict)
             else:
                 logging.error("adapter {0}: unknown type {1}".format(remote_name, adapter_type))
 
@@ -226,6 +242,13 @@ class OstreeUploadServer(object):
 
         if config.has_section('users'):
             users = dict(config.items('users'))
+
+        if users:
+            logging.debug("Users configured:")
+            for user in users.keys():
+                logging.debug(" - {}".format(user))
+        else:
+            logging.warning("Warning! No authentication configured!")
 
         # Perform idle maintenance?
         do_maintenance = True
@@ -236,7 +259,7 @@ class OstreeUploadServer(object):
                               users,
                               self._repo,
                               active_upload_counter,
-                              push_adapters,
+                              remote_push_adapter_map,
                               task_queue)
 
         http_server = WSGIServer(('', self._port), webapp)
