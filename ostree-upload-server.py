@@ -103,7 +103,7 @@ class UploadWebApp(Flask):
 
     def index(self):
         links = "<a href='{0}'>upload</a>".format(url_for("upload"))
-        links += "\n<a href='{0}'>upload</a>".format(url_for("upload"))
+        links += "<br /><a href='{0}'>push</a>".format(url_for("push"))
         return links
 
     def upload(self):
@@ -131,17 +131,15 @@ class UploadWebApp(Flask):
                 task = ReceiveTask(upload.filename, real_name,
                                    self._repo)
                 self._task_queue.add_task(task)
-                logging.debug("/upload: POST request completed for " + upload.filename)
+                logging.debug("/upload: POST request completed for ".format(upload.filename))
 
                 return self._response(200, "Importing bundle",
                                       task=task.get_id())
         elif request.method == "GET":
-            logging.debug("/upload: GET request {}"
-                          .format(request.full_path))
+            logging.debug("/upload: GET request {}".format(request.full_path))
             return self._get_request_task(ReceiveTask)
         else:
-            return self._response(400,
-                                  "Only GET and POST methods supported")
+            return self._response(400, "Only GET and POST methods supported")
 
     def push(self):
         """
@@ -165,16 +163,13 @@ class UploadWebApp(Flask):
             adapter = self._remote_push_adapter_map[remote]
             task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
             self._task_queue.add_task(task)
-            return self._response(200,
-                                  "Pushing {0} to {1}".format(ref, remote),
+            return self._response(200, "Pushing {0} to {1}".format(ref, remote),
                                   task=task.get_id())
         elif request.method == "GET":
-            logging.debug("/push: GET request {}"
-                          .format(request.full_path))
+            logging.debug("/push: GET request {}".format(request.full_path))
             return self._get_request_task(PushTask)
         else:
-            return self._response(400,
-                                  "Only GET and PUT methods supported")
+            return self._response(400, "Only GET and PUT methods supported")
 
     def _response(self, status_code, message, **kwargs):
         body = {
@@ -213,10 +208,10 @@ class OstreeUploadServer(object):
 
         logging.info("Starting server on %d..." % self._port)
 
-        logging.debug("task completed callback %s", latest_task_complete)
+        logging.debug("Task completed callback %s", latest_task_complete)
 
         def completed_callback(latest_task_complete):
-            logging.debug("task completed callback %s", latest_task_complete)
+            logging.debug("Task completed callback %s", latest_task_complete)
             latest_task_complete[:] = [time()]
 
         workers = WorkerPoolExecutor(partial(completed_callback, latest_task_complete))
@@ -240,7 +235,8 @@ class OstreeUploadServer(object):
                 remote_push_adapter_map[remote_name] = adapter_impl_class(remote_name,
                                                                           remote_dict)
             else:
-                logging.error("adapter {0}: unknown type {1}".format(remote_name, adapter_type))
+                logging.error("Adapter {0}: unknown type {1}".format(remote_name,
+                                                                     adapter_type))
 
         users = None
 
@@ -276,7 +272,7 @@ class OstreeUploadServer(object):
             try:
                 gsleep(5)
                 task_queue.join()
-                logging.debug("task queue empty, " + str(active_upload_counter.count) + " uploads ongoing")
+                logging.debug("Task queue empty, {} uploads ongoing".format(str(active_upload_counter.count)))
 
                 # Continue looping if maintenance not desired
                 if not do_maintenance:
@@ -290,9 +286,9 @@ class OstreeUploadServer(object):
                             time_since_maintenance))
                 if time_since_maintenance > time_since_task:
                     # uploads have been processed since last maintenance
-                    logging.debug("maintenance needed")
+                    logging.debug("Maintenance needed")
                     if time_since_task >= MAINTENANCE_WAIT:
-                        logging.debug("idle, do maintenance")
+                        logging.debug("Idle. Performing maintenance")
                         workers.stop()
 
                         with RepoLock(self._repo, exclusive=True):
@@ -303,7 +299,7 @@ class OstreeUploadServer(object):
                                                        "--prune",
                                                        self._repo],
                                                       stderr=STDOUT)
-                                logging.info("completed maintenance: " + output)
+                                logging.info("Completed maintenance: {}".format(output))
                             except CalledProcessError as e:
                                 logging.error("ERROR! Maintenance task failed!")
                                 logging.error(e)
@@ -324,8 +320,7 @@ class OstreeUploadServer(object):
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("repo",
-                        help="OSTree repository")
+    parser.add_argument("repo", help="OSTree repository")
     parser.add_argument("-w", "--workers", type=int,
                         default=WorkerPoolExecutor.DEFAULT_WORKER_COUNT,
                         help="Number of uploads to process in parallel")
