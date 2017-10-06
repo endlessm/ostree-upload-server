@@ -8,6 +8,8 @@ import gi
 gi.require_version('OSTree', '1.0')
 from gi.repository import GLib, Gio, OSTree
 
+from ConfigParser import ConfigParser
+
 
 OSTREE_COMMIT_GVARIANT_STRING = "(a{sv}aya(say)sstayay)"
 
@@ -22,11 +24,34 @@ OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT = \
     ")"
 
 
-class FlatpakImporter(object):
-    def _get_metadata_contents(self, repo, rev):
+class FlatpakImporter():
+    CONFIG_PATHS = [ '/etc/ostree/flatpak-import.conf',
+                     os.path.expanduser('~/.config/ostree/flatpak-import.conf'),
+                    'flatpak-import.conf' ]
+
+    METADATA_KEYS = [ 'ref',
+                      'flatpak',
+                      'origin',
+                      'runtime-repo',
+                      'metadata',
+                      'gpg-keys' ]
+
+    @staticmethod
+    def _parse_config():
+        config = ConfigParser()
+        config.read(FlatpakImporter.CONFIG_PATHS)
+
+        configs = {}
+        if config.has_section('defaults'):
+            configs = dict(config.items('defaults'))
+
+        return configs
+
+    @staticmethod
+    def _get_metadata_contents(repo, rev):
         """Read the contents of the commit's metadata file"""
         _, root, checksum = repo.read_commit(rev)
-        logging.debug("commit_checksum: " + checksum)
+        logging.debug("Commit_checksum: " + checksum)
 
         # Get the file and size
         metadata_file = Gio.File.resolve_relative_path (root, 'metadata');
@@ -34,7 +59,8 @@ class FlatpakImporter(object):
             Gio.FILE_ATTRIBUTE_STANDARD_SIZE, Gio.FileQueryInfoFlags.NONE)
         metadata_size = metadata_info.get_attribute_uint64(
             Gio.FILE_ATTRIBUTE_STANDARD_SIZE)
-        logging.debug("metadata file size:" + str(metadata_size))
+
+        logging.debug("Metadata file size: {}".format(str(metadata_size)))
 
         # Open it for reading and return the data
         metadata_stream = metadata_file.read()
@@ -42,13 +68,24 @@ class FlatpakImporter(object):
 
         return metadata_bytes.get_data()
 
-
-    def import_flatpak(self,
-                       flatpak,
+    @staticmethod
+    def import_flatpak(flatpak,
                        repository,
-                       gpg_homedir,
-                       keyring,
-                       sign_key):
+                       gpg_homedir = None,
+                       keyring = None,
+                       sign_key = None):
+
+        defaults = FlatpakImporter._parse_config()
+
+        # If we only have defaults, use those instead
+        gpg_homedir = gpg_homedir or defaults.get('gpg_homedir', None)
+        keyring = keyring or defaults.get('keyring', None)
+        sign_key = sign_key or defaults.get('sign_key', None)
+
+        logging.info("Starting the Flatpak import process...")
+        for arg in ['flatpak', 'repository', 'gpg_homedir', 'keyring', 'sign_key']:
+            logging.info("Set {} to {}".format(arg, locals()[arg]))
+
         ### Mmap the flatpak file and create a GLib.Variant from it
         mapped_file = GLib.MappedFile.new(flatpak, False)
         mapped_bytes = mapped_file.get_bytes()
@@ -66,28 +103,23 @@ class FlatpakImporter(object):
         OSTree.validate_structureof_csum_v(checksum_variant)
 
         metadata_variant = delta.get_child_value(0)
-        logging.debug("metadata keys: {0}".format(metadata_variant.keys()))
+        logging.debug("Metadata keys: {0}".format(metadata_variant.keys()))
 
         commit = OSTree.checksum_from_bytes_v(checksum_variant)
 
         metadata = {}
-        metadata_keys = [ 'ref',
-                'flatpak',
-                'origin',
-                'runtime-repo',
-                'metadata',
-                'gpg-keys' ]
-
-        for key in metadata_keys:
+        for key in FlatpakImporter.METADATA_KEYS:
             try:
                 metadata[key] = metadata_variant[key]
             except KeyError:
                 metadata[key] = ''
+
             logging.debug("{0}: {1}".format(key, metadata[key]))
 
         # Open repository
         repo_file = Gio.File.new_for_path(repository)
         repo = OSTree.Repo(path=repo_file)
+
         if os.path.exists(os.path.join(repository, 'config')):
             logging.info('Opening repo at ' + repository)
             repo.open()
@@ -117,34 +149,35 @@ class FlatpakImporter(object):
             repo.static_delta_execute_offline(flatpak_file, False, None)
 
             # Verify gpg signature
+            keyring_dir = None
             if gpg_homedir:
-                gpg_homedir = Gio.File.new_for_path(gpg_homedir)
-            else:
-                gpg_homedir = None
+                keyring_dir = Gio.File.new_for_path(gpg_homedir)
+
+            trusted_keyring = None
             if keyring:
                 trusted_keyring = Gio.File.new_for_path(keyring)
-            else:
-                trusted_keyring = None
+
             gpg_verify_result = repo.verify_commit_ext(commit,
-                                                       keyringdir=gpg_homedir,
+                                                       keyringdir=keyring_dir,
                                                        extra_keyring=trusted_keyring,
                                                        cancellable=None)
             # TODO: Handle signature requirements
             if gpg_verify_result and gpg_verify_result.count_valid() > 0:
-                logging.info("valid signature found")
+                logging.info("Valid flatpak signature found")
             else:
-                raise Exception("no valid signature")
+                raise Exception("Flatpak does not have valid signature!")
 
             # Compare installed and header metadata, remove commit if mismatch
-            metadata_contents = self._get_metadata_contents(repo, commit)
+            metadata_contents = FlatpakImporter._get_metadata_contents(repo, commit)
             if metadata_contents == metadata['metadata']:
-                logging.debug("committed metadata matches the static delta header")
+                logging.debug("Committed metadata matches the static delta header")
             else:
-                raise Exception("committed metadata does not match the static delta header")
+                raise Exception("Committed metadata does not match the static delta header")
 
             # Sign the commit
             if sign_key:
-                logging.debug("should sign with key " + sign_key)
+                logging.info("Signing with key {} from {}".format(sign_key,
+                                                                  keyring_dir))
                 try:
                     repo.sign_commit(commit_checksum=commit,
                                      key_id=sign_key,
@@ -172,6 +205,8 @@ class FlatpakImporter(object):
         if sign_key:
             cmd.append('--gpg-sign=' + sign_key)
         cmd.append(repository)
+
         logging.info('Updating repository metadata')
         logging.debug('Executing ' + ' '.join(cmd))
+
         subprocess.check_call(cmd)

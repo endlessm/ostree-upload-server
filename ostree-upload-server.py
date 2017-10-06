@@ -49,6 +49,10 @@ class UploadWebApp(Flask):
         self._remote_push_adapter_map = remote_push_adapter_map
         self._task_queue = task_queue
 
+        # Sanity check
+        if not os.path.isdir(self._repo):
+            raise RuntimeError("ERROR! Repo path '{}' is not valid!".format(self._repo))
+
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
         self.route("/push", methods=["GET", "PUT"])(self.push)
@@ -85,7 +89,7 @@ class UploadWebApp(Flask):
 
         if task is None:
             return self._response(404,
-                                  "task {} does not exist".format(task_id))
+                                  "Task {} does not exist".format(task_id))
 
         if not isinstance(task, allowed_task):
             return self._response(400,
