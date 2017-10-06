@@ -3,7 +3,6 @@ import os
 import tempfile
 
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
-from repolock import RepoLock
 
 from ostree_upload_server.repolock import RepoLock
 from ostree_upload_server.task.base import BaseTask
