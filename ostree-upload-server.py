@@ -4,6 +4,7 @@ import argparse
 import atexit
 import logging
 import os
+import re
 import shutil
 import tempfile
 
@@ -40,18 +41,23 @@ global latest_task_complete
 
 
 class UploadWebApp(Flask):
-    def __init__(self, import_name, users, repo, upload_counter,
+    # Allowed groups: lowercase, uppercase, numbers, and '-'
+    REPO_NAME_PATTERN = re.compile("^([A-Za-z\-0-9]+)+$")
+
+    def __init__(self, import_name, users, repo_prefix, upload_counter,
                  remote_push_adapter_map, task_queue):
         super(UploadWebApp, self).__init__(import_name)
         self._authenticator = Authenticator(users)
-        self._repo = repo
+        self._repo_prefix = repo_prefix
         self._upload_counter = upload_counter
         self._remote_push_adapter_map = remote_push_adapter_map
         self._task_queue = task_queue
 
+        self._active_repos = set([])
+
         # Sanity check
-        if not os.path.isdir(self._repo):
-            raise RuntimeError("ERROR! Repo path '{}' is not valid!".format(self._repo))
+        if not os.path.isdir(self._repo_prefix):
+            raise RuntimeError("ERROR! Repo path prefix '{}' is not valid!".format(self._repo_prefix))
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
@@ -61,6 +67,9 @@ class UploadWebApp(Flask):
         # so to avoid RAM exhaustion, we use /var/tmp
         self._tempdir = tempfile.mkdtemp(dir="/var/tmp", prefix="ostree-upload-server-")
         atexit.register(shutil.rmtree, self._tempdir)
+
+    def get_active_repos(self):
+        return self._active_repos
 
     def _request_authentication(self):
         """Sends a 401 response that enables basic auth"""
@@ -88,13 +97,11 @@ class UploadWebApp(Flask):
         task = self._task_queue.get_task(task_id)
 
         if task is None:
-            return self._response(404,
-                                  "Task {} does not exist".format(task_id))
+            return self._response(404, "Task {} does not exist".format(task_id))
 
         if not isinstance(task, allowed_task):
-            return self._response(400,
-                                  "Task {} is not a {} task".format(task_id,
-                                                                    request.path))
+            return self._response(400, "Task {} is not a {} task".format(task_id,
+                                                                         request.path))
 
         # Format the task state
         state = task.get_state_name()
@@ -124,13 +131,34 @@ class UploadWebApp(Flask):
                 if upload.filename == "":
                     return self._response(400, "No filename in request")
 
+                repo_name = request.form.get('repo', None)
+                logging.info("Target repo: {}".format(repo_name))
+
+                if not repo_name:
+                    logging.error("ERROR! Target repo not provided!")
+                    return self._response(400, "ERROR! 'repo' parameter not set!")
+
+                # Verify that this param is not trying anything funky
+                if not UploadWebApp.REPO_NAME_PATTERN.match(repo_name):
+                    logging.error("Target repo name ({}) is not valid!".format(repo_name))
+                    return self._response(400, "ERROR! 'repo' parameter is not valid!")
+
                 (f, real_name) = tempfile.mkstemp(dir=self._tempdir)
                 os.close(f)
                 upload.save(real_name)
 
-                task = ReceiveTask(upload.filename, real_name,
-                                   self._repo)
+                full_repo_path = os.path.join(self._repo_prefix, repo_name)
+
+                if not os.path.exists(full_repo_path):
+                    logging.warn("Directory {} not present. Creating it...".format(full_repo_path))
+                    os.mkdir(full_repo_path)
+
+                # Make sure that we are managing all repos we uploaded to
+                self._active_repos.add(full_repo_path)
+
+                task = ReceiveTask(upload.filename, real_name, full_repo_path)
                 self._task_queue.add_task(task)
+
                 logging.debug("/upload: POST request completed for ".format(upload.filename))
 
                 return self._response(200, "Importing bundle",
@@ -189,8 +217,8 @@ class OstreeUploadServer(object):
                              HttpPushAdapter,
                              ScpPushAdapter ]
 
-    def __init__(self, repo_path, port, workers):
-        self._repo = repo_path
+    def __init__(self, repo_prefix, port, workers):
+        self._repo_prefix= repo_prefix
         self._port = port
         self._workers = workers
 
@@ -250,14 +278,13 @@ class OstreeUploadServer(object):
         else:
             logging.warning("Warning! No authentication configured!")
 
-        # Perform idle maintenance?
         do_maintenance = True
         if config.has_section('server'):
             do_maintenance = config.getboolean('server', 'maintenance')
 
         webapp = UploadWebApp(__name__,
                               users,
-                              self._repo,
+                              self._repo_prefix,
                               active_upload_counter,
                               remote_push_adapter_map,
                               task_queue)
@@ -285,26 +312,31 @@ class OstreeUploadServer(object):
                             time_since_task,
                             time_since_maintenance))
                 if time_since_maintenance > time_since_task:
-                    # uploads have been processed since last maintenance
+                    # Uploads have been processed since last maintenance
                     logging.debug("Maintenance needed")
                     if time_since_task >= MAINTENANCE_WAIT:
                         logging.debug("Idle. Performing maintenance")
                         workers.stop()
 
-                        with RepoLock(self._repo, exclusive=True):
-                            try:
-                                output = check_output(["flatpak",
-                                                       "build-update-repo",
-                                                       "--generate-static-deltas",
-                                                       "--prune",
-                                                       self._repo],
-                                                      stderr=STDOUT)
-                                logging.info("Completed maintenance: {}".format(output))
-                            except CalledProcessError as e:
-                                logging.error("ERROR! Maintenance task failed!")
-                                logging.error(e)
+                        logging.info("Performing maintenance on repos: {}".format(webapp.get_active_repos()))
+                        for active_repo in webapp.get_active_repos():
+                            logging.info("Performing maintenance on {}".format(active_repo))
 
-                        latest_maintenance_complete = time()
+                            with RepoLock(active_repo, exclusive=True):
+                                try:
+                                    output = check_output(["flatpak",
+                                                           "build-update-repo",
+                                                           "--generate-static-deltas",
+                                                           "--prune",
+                                                           active_repo],
+                                                          stderr=STDOUT)
+                                    logging.info("Completed maintenance on {}: {}".format(active_repo, output))
+                                except CalledProcessError as e:
+                                    logging.error("ERROR! Maintenance task failed!")
+                                    logging.error(e)
+
+                            latest_maintenance_complete = time()
+
                         workers.start(task_queue, self._workers)
 
             except (KeyboardInterrupt, SystemExit):
@@ -320,7 +352,7 @@ class OstreeUploadServer(object):
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("repo", help="OSTree repository")
+    parser.add_argument("repo", help="OSTree repository location prefix")
     parser.add_argument("-w", "--workers", type=int,
                         default=WorkerPoolExecutor.DEFAULT_WORKER_COUNT,
                         help="Number of uploads to process in parallel")
