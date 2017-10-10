@@ -2,6 +2,7 @@
 
 import argparse
 import atexit
+import errno
 import logging
 import os
 import shutil
@@ -40,18 +41,14 @@ global latest_task_complete
 
 
 class UploadWebApp(Flask):
-    def __init__(self, import_name, users, repo, upload_counter,
+    def __init__(self, import_name, users, repos, upload_counter,
                  remote_push_adapter_map, task_queue):
         super(UploadWebApp, self).__init__(import_name)
         self._authenticator = Authenticator(users)
-        self._repo = repo
+        self._repos = repos
         self._upload_counter = upload_counter
         self._remote_push_adapter_map = remote_push_adapter_map
         self._task_queue = task_queue
-
-        # Sanity check
-        if not os.path.isdir(self._repo):
-            raise RuntimeError("ERROR! Repo path '{}' is not valid!".format(self._repo))
 
         self.route("/")(self.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
@@ -88,13 +85,11 @@ class UploadWebApp(Flask):
         task = self._task_queue.get_task(task_id)
 
         if task is None:
-            return self._response(404,
-                                  "Task {} does not exist".format(task_id))
+            return self._response(404, "Task {} does not exist".format(task_id))
 
         if not isinstance(task, allowed_task):
-            return self._response(400,
-                                  "Task {} is not a {} task".format(task_id,
-                                                                    request.path))
+            return self._response(400, "Task {} is not a {} task".format(task_id,
+                                                                         request.path))
 
         # Format the task state
         state = task.get_state_name()
@@ -124,13 +119,34 @@ class UploadWebApp(Flask):
                 if upload.filename == "":
                     return self._response(400, "No filename in request")
 
+                repo_name = request.form.get('repo', None)
+                logging.info("Target repo: {}".format(repo_name))
+
+                if not repo_name:
+                    logging.error("ERROR! Target repo not provided!")
+                    return self._response(400, "ERROR! 'repo' parameter not set!")
+
+                if repo_name not in self._repos.keys():
+                    logging.error("ERROR! Target repo '{}' is invalid!".format(repo_name))
+                    return self._response(400, "ERROR! 'repo' parameter is not valid!".format(repo_name))
+
+                repo_path = self._repos[repo_name]
+
+                if not os.path.exists(repo_path):
+                    logging.warn("Directory {} not present. Creating it...".format(repo_path))
+                    try:
+                        os.makedirs(repo_path)
+                    except OSError as err:
+                        if err.errno != errno.EEXIST:
+                            raise
+
                 (f, real_name) = tempfile.mkstemp(dir=self._tempdir)
                 os.close(f)
                 upload.save(real_name)
 
-                task = ReceiveTask(upload.filename, real_name,
-                                   self._repo)
+                task = ReceiveTask(upload.filename, real_name, repo_path)
                 self._task_queue.add_task(task)
+
                 logging.debug("/upload: POST request completed for ".format(upload.filename))
 
                 return self._response(200, "Importing bundle",
@@ -189,14 +205,15 @@ class OstreeUploadServer(object):
                              HttpPushAdapter,
                              ScpPushAdapter ]
 
-    def __init__(self, repo_path, port, workers):
-        self._repo = repo_path
+    def __init__(self, port, workers):
         self._port = port
         self._workers = workers
 
         self._adapters = {}
         for adapter_impl_class in OstreeUploadServer.ADAPTER_IMPL_CLASSES:
             self._adapters[adapter_impl_class.name] = adapter_impl_class
+
+        self._managed_repos = {}
 
     def run(self):
         # Array since we need to pass by ref
@@ -238,6 +255,23 @@ class OstreeUploadServer(object):
                 logging.error("Adapter {0}: unknown type {1}".format(remote_name,
                                                                      adapter_type))
 
+        # Enumerate all the allowed repos
+        for section in config.sections():
+            if not section.startswith('repo-'):
+                continue
+
+            repo_name = section[len('repo-'):]
+            repo_definition = dict(config.items(section))
+            repo_path = repo_definition['path']
+
+            self._managed_repos[repo_name] = repo_path
+
+            logging.info("Repo {} -> {} configuration added".format(repo_name,
+                                                                    repo_path))
+
+        if len(self._managed_repos) == 0:
+            raise Exception('No repositories configured')
+
         users = None
 
         if config.has_section('users'):
@@ -250,14 +284,13 @@ class OstreeUploadServer(object):
         else:
             logging.warning("Warning! No authentication configured!")
 
-        # Perform idle maintenance?
         do_maintenance = True
         if config.has_section('server'):
             do_maintenance = config.getboolean('server', 'maintenance')
 
         webapp = UploadWebApp(__name__,
                               users,
-                              self._repo,
+                              self._managed_repos,
                               active_upload_counter,
                               remote_push_adapter_map,
                               task_queue)
@@ -281,30 +314,40 @@ class OstreeUploadServer(object):
                 time_since_maintenance = time() - latest_maintenance_complete
                 time_since_task = time() - latest_task_complete[0]
                 logging.debug("{:.1f} complete".format(time_since_task))
-                logging.debug("{:.1f} since last task, {:.1f} since last maintenance".format(
-                            time_since_task,
-                            time_since_maintenance))
+                logging.debug("{:.1f} since last task, {:.1f}/{} since last maintenance".format(time_since_task,
+                                                                                                time_since_maintenance,
+                                                                                                MAINTENANCE_WAIT))
                 if time_since_maintenance > time_since_task:
-                    # uploads have been processed since last maintenance
+                    # Uploads have been processed since last maintenance
                     logging.debug("Maintenance needed")
                     if time_since_task >= MAINTENANCE_WAIT:
                         logging.debug("Idle. Performing maintenance")
                         workers.stop()
 
-                        with RepoLock(self._repo, exclusive=True):
-                            try:
-                                output = check_output(["flatpak",
-                                                       "build-update-repo",
-                                                       "--generate-static-deltas",
-                                                       "--prune",
-                                                       self._repo],
-                                                      stderr=STDOUT)
-                                logging.info("Completed maintenance: {}".format(output))
-                            except CalledProcessError as e:
-                                logging.error("ERROR! Maintenance task failed!")
-                                logging.error(e)
+                        repo_paths = self._managed_repos.values()
+                        logging.info("Performing maintenance on repos: {}".format(repo_paths))
+                        for active_repo in repo_paths:
+                            logging.info("Performing maintenance on {}".format(active_repo))
 
-                        latest_maintenance_complete = time()
+                            if not os.path.isdir(active_repo):
+                                logging.warn("Repo {} doesn't exist - skipping mainenance!".format(active_repo))
+                                continue
+
+                            with RepoLock(active_repo, exclusive=True):
+                                try:
+                                    output = check_output(["flatpak",
+                                                           "build-update-repo",
+                                                           "--generate-static-deltas",
+                                                           "--prune",
+                                                           active_repo],
+                                                          stderr=STDOUT)
+                                    logging.info("Completed maintenance on {}: {}".format(active_repo, output))
+                                except CalledProcessError as e:
+                                    logging.error("ERROR! Maintenance task failed!")
+                                    logging.error(e)
+
+                            latest_maintenance_complete = time()
+
                         workers.start(task_queue, self._workers)
 
             except (KeyboardInterrupt, SystemExit):
@@ -320,7 +363,6 @@ class OstreeUploadServer(object):
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("repo", help="OSTree repository")
     parser.add_argument("-w", "--workers", type=int,
                         default=WorkerPoolExecutor.DEFAULT_WORKER_COUNT,
                         help="Number of uploads to process in parallel")
@@ -342,4 +384,4 @@ if __name__=='__main__':
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    OstreeUploadServer(args.repo, args.port, args.workers).run()
+    OstreeUploadServer(args.port, args.workers).run()
