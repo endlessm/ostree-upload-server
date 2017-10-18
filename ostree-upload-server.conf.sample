@@ -1,12 +1,19 @@
 [server]
-# perform maintenance tasks when idle
+# Perform maintenance tasks when idle
 maintenance = true
 
-[users]
-# leave empty if no authentication is needed
+# Leave empty if no authentication is needed
 # passwords are encrypted using PBKDF2-SHA256
+[users]
 user1 = $pbkdf2-sha256$29000$Maa01jqH0DoHQCiF0FoLoQ$9h4tyFdzD2XnV1MsOjkYjgler55Es4jIxUtyWDnGmxM
 user2 = $pbkdf2-sha256$29000$DyFE6P1fy1kLIQTA2DtnLA$gahi5rfSSxzDoEOEVmzPIufN.PV7NQ.kXAXhvxZlx10
+
+# repo-<repo_name> are mappings of allowed repos to their locations
+[repo-main]
+path = /path/to/main/repo
+
+[repo-alternate-repo]
+path = /path/to/alternate/repo
 
 [remote-test]
 type = dummy
