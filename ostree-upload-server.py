@@ -37,6 +37,11 @@ from ostree_upload_server.worker_pool_executor import WorkerPoolExecutor
 DEFAULT_LISTEN_PORT = 5000
 MAINTENANCE_WAIT = 10
 
+# Flask (really werzkeug) saves uploads with TemporaryFile, so they go
+# in tempfile.tempdir. Our uploads can be very large, so make that
+# /var/tmp in case /tmp is a tmpfs.
+tempfile.tempdir = '/var/tmp'
+
 global latest_task_complete
 
 
