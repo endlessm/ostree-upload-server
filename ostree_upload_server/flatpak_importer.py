@@ -23,6 +23,10 @@ OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT = \
     "a" + OSTREE_STATIC_DELTA_FALLBACK_FORMAT + \
     ")"
 
+# Indices into the commit gvariant tuple
+COMMIT_TREE_CONTENT_CHECKSUM_INDEX = 6
+COMMIT_TREE_METADATA_CHECKSUM_INDEX = 7
+
 
 class FlatpakImporter():
     CONFIG_PATHS = [ '/etc/ostree/flatpak-import.conf',
@@ -134,10 +138,37 @@ class FlatpakImporter():
 
         # See if the ref is already pointed at this commit
         _, current_rev = repo.resolve_rev(metadata['ref'], allow_noent=True)
+        logging.debug('Current {} commit: {}'.format(metadata['ref'],
+                                                     current_rev))
         if current_rev == commit:
             logging.info('Ref {} already at commit {}'
                          .format(metadata['ref'], commit))
             return
+        elif current_rev is not None:
+            # See if the current ref was built from this commit.
+            # Normally you'd read each commit and have ostree check if
+            # the roots are equal, but we don't have the new commit
+            # until the delta is executed. Since that's slow, fast path
+            # this by checking whether the tree checksums from the
+            # commits match like ostree_repo_file_equal() eventually
+            # does.
+            commit_variant = delta.get_child_value(4)
+            _, current_variant, _ = repo.load_commit(current_rev)
+
+            commit_tree_content_checksum = commit_variant.get_child_value(
+                COMMIT_TREE_CONTENT_CHECKSUM_INDEX)
+            commit_tree_metadata_checksum = commit_variant.get_child_value(
+                COMMIT_TREE_METADATA_CHECKSUM_INDEX)
+            current_tree_content_checksum = current_variant.get_child_value(
+                COMMIT_TREE_CONTENT_CHECKSUM_INDEX)
+            current_tree_metadata_checksum = current_variant.get_child_value(
+                COMMIT_TREE_METADATA_CHECKSUM_INDEX)
+
+            if (commit_tree_content_checksum == current_tree_content_checksum) and \
+               (commit_tree_metadata_checksum == current_tree_metadata_checksum):
+                logging.info('Ref {} built from commit {}'
+                             .format(metadata['ref'], commit))
+                return
 
         try:
             # Prepare transaction
