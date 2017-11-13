@@ -207,8 +207,8 @@ class FlatpakImporter():
 
             # Sign the commit
             if sign_key:
-                logging.info("Signing with key {} from {}".format(sign_key,
-                                                                  keyring_dir))
+                logging.info("Signing with key {} from {}"
+                             .format(sign_key, keyring_dir.get_path()))
                 try:
                     repo.sign_commit(commit_checksum=commit,
                                      key_id=sign_key,
