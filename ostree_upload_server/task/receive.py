@@ -33,7 +33,7 @@ class ReceiveTask(BaseTask):
                 self.set_state(TaskState.COMPLETED)
 
                 logging.info("Completed task {}".format(self.get_name()))
-            except GLib.Error as e:
+            except Exception as e:
                 self.set_state(TaskState.FAILED)
 
                 logging.error("Failed task {}".format(e))
