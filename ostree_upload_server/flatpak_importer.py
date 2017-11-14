@@ -27,6 +27,16 @@ OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT = \
 COMMIT_TREE_CONTENT_CHECKSUM_INDEX = 6
 COMMIT_TREE_METADATA_CHECKSUM_INDEX = 7
 
+# OSTree on SOMA does not have experimental API, so add some
+# compatibility settings
+#
+# FIXME: Remove this when P2P bindings are no longer experimental and
+# can then be expected in SOMA
+if not hasattr(OSTree, 'COMMIT_META_KEY_COLLECTION_BINDING'):
+    OSTree.COMMIT_META_KEY_COLLECTION_BINDING = 'ostree.collection-binding'
+if not hasattr(OSTree, 'COMMIT_META_KEY_REF_BINDING'):
+    OSTree.COMMIT_META_KEY_REF_BINDING = 'ostree.ref-binding'
+
 
 class FlatpakImporter():
     CONFIG_PATHS = [ '/etc/ostree/flatpak-import.conf',
@@ -71,6 +81,29 @@ class FlatpakImporter():
         metadata_bytes = metadata_stream.read_bytes(metadata_size)
 
         return metadata_bytes.get_data()
+
+    # FIXME: Remove this when P2P bindings are no longer experimental
+    # and can then be expected in SOMA
+    @staticmethod
+    def _get_collection_id(repo):
+        """Compatibility wrapper for OSTree.Repo.get_collection_id"""
+        if hasattr(repo, 'get_collection_id'):
+            return repo.get_collection_id()
+
+        # Emulate it by seeing if core.collection-id is set. GKeyFile
+        # doesn't have any means to check if a key exists, so you have
+        # to catch errors.
+        config = repo.get_config()
+        try:
+            collection_id = config.get_string('core', 'collection-id')
+        except GLib.Error as err:
+            if err.matches(GLib.key_file_error_quark(),
+                           GLib.KeyFileError.KEY_NOT_FOUND):
+                collection_id = None
+            else:
+                raise
+
+        return collection_id
 
     @staticmethod
     def import_flatpak(flatpak,
