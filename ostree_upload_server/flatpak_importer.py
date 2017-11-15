@@ -23,6 +23,22 @@ OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT = \
     "a" + OSTREE_STATIC_DELTA_FALLBACK_FORMAT + \
     ")"
 
+# Indices into the commit gvariant tuple
+COMMIT_SUBJECT_INDEX = 3
+COMMIT_BODY_INDEX = 4
+COMMIT_TREE_CONTENT_CHECKSUM_INDEX = 6
+COMMIT_TREE_METADATA_CHECKSUM_INDEX = 7
+
+# OSTree on SOMA does not have experimental API, so add some
+# compatibility settings
+#
+# FIXME: Remove this when P2P bindings are no longer experimental and
+# can then be expected in SOMA
+if not hasattr(OSTree, 'COMMIT_META_KEY_COLLECTION_BINDING'):
+    OSTree.COMMIT_META_KEY_COLLECTION_BINDING = 'ostree.collection-binding'
+if not hasattr(OSTree, 'COMMIT_META_KEY_REF_BINDING'):
+    OSTree.COMMIT_META_KEY_REF_BINDING = 'ostree.ref-binding'
+
 
 class FlatpakImporter():
     CONFIG_PATHS = [ '/etc/ostree/flatpak-import.conf',
@@ -67,6 +83,118 @@ class FlatpakImporter():
         metadata_bytes = metadata_stream.read_bytes(metadata_size)
 
         return metadata_bytes.get_data()
+
+    # FIXME: Remove this when P2P bindings are no longer experimental
+    # and can then be expected in SOMA
+    @staticmethod
+    def _get_collection_id(repo):
+        """Compatibility wrapper for OSTree.Repo.get_collection_id"""
+        if hasattr(repo, 'get_collection_id'):
+            return repo.get_collection_id()
+
+        # Emulate it by seeing if core.collection-id is set. GKeyFile
+        # doesn't have any means to check if a key exists, so you have
+        # to catch errors.
+        config = repo.get_config()
+        try:
+            collection_id = config.get_string('core', 'collection-id')
+        except GLib.Error as err:
+            if err.matches(GLib.key_file_error_quark(),
+                           GLib.KeyFileError.KEY_NOT_FOUND):
+                collection_id = None
+            else:
+                raise
+
+        return collection_id
+
+    @staticmethod
+    def _copy_commit(repo, src_rev, dest_ref):
+        """Copy commit src_rev to dest_ref
+
+        This makes the new commit at dest_ref have the proper collection
+        binding for this repo. The caller is expected to manage the
+        ostree transaction.
+
+        This is like "flatpak build-commit-from", but we need more
+        control over the transaction.
+        """
+        logging.info('Copying commit %s to %s', src_rev, dest_ref)
+
+        _, src_root, _ = repo.read_commit(src_rev)
+        _, src_variant, src_state = repo.load_commit(src_rev)
+
+        # Only copy normal commits
+        if src_state != 0:
+            raise Exception('Cannot copy irregular commit {}'
+                            .format(src_rev))
+
+        # If the dest ref exists, use the current commit as the new
+        # commit's parent
+        _, dest_parent = repo.resolve_rev_ext(
+            dest_ref, allow_noent=True,
+            flags=OSTree.RepoResolveRevExtFlags.REPO_RESOLVE_REV_EXT_NONE)
+        if dest_parent is not None:
+            logging.info('Using %s as new commit parent', dest_parent)
+
+        # Make a copy of the commit metadata to update. Like flatpak
+        # build-commit-from, the detached metadata is not copied since
+        # the only known usage is for GPG signatures, which would become
+        # invalid.
+        commit_metadata = GLib.VariantDict.new(src_variant.get_child_value(0))
+
+        # Set the collection binding if the repo has a collection ID,
+        # otherwise remove it
+        collection_id = FlatpakImporter._get_collection_id(repo)
+        if collection_id is not None:
+            commit_metadata.insert_value(
+                OSTree.COMMIT_META_KEY_COLLECTION_BINDING,
+                GLib.Variant('s', collection_id))
+        else:
+            commit_metadata.remove(
+                OSTree.COMMIT_META_KEY_COLLECTION_BINDING)
+
+        # Include the destination ref in the ref bindings
+        ref_bindings = commit_metadata.lookup_value(
+            OSTree.COMMIT_META_KEY_REF_BINDING,
+            GLib.VariantType('as'))
+        if ref_bindings is None:
+            ref_bindings = []
+        ref_bindings = set(ref_bindings)
+        ref_bindings.add(dest_ref)
+        commit_metadata.insert_value(
+            OSTree.COMMIT_META_KEY_REF_BINDING,
+            GLib.Variant('as', sorted(ref_bindings)))
+
+        # Add flatpak specific metadata. xa.ref is deprecated, but some
+        # flatpak clients might expect it. xa.from_commit will be used
+        # by the app verifier to make sure the commit it sent actually
+        # got there
+        commit_metadata.insert_value('xa.ref',
+                                     GLib.Variant('s', dest_ref))
+        commit_metadata.insert_value('xa.from_commit',
+                                     GLib.Variant('s', src_rev))
+
+        # Convert from GVariantDict to GVariant vardict
+        commit_metadata = commit_metadata.end()
+
+        # Copy other commit data from source commit
+        commit_subject = src_variant[COMMIT_SUBJECT_INDEX]
+        commit_body = src_variant[COMMIT_BODY_INDEX]
+        commit_time = OSTree.commit_get_timestamp(src_variant)
+
+        # Make the new commit assuming the caller started a transaction
+        mtree = OSTree.MutableTree.new()
+        repo.write_directory_to_mtree(src_root, mtree, None)
+        _, dest_root = repo.write_mtree(mtree)
+        _, dest_checksum = repo.write_commit_with_time(dest_parent,
+                                                       commit_subject,
+                                                       commit_body,
+                                                       commit_metadata,
+                                                       dest_root,
+                                                       commit_time)
+        logging.info('Created new commit %s', dest_checksum)
+
+        return dest_checksum
 
     @staticmethod
     def import_flatpak(flatpak,
@@ -134,15 +262,41 @@ class FlatpakImporter():
 
         # See if the ref is already pointed at this commit
         _, current_rev = repo.resolve_rev(metadata['ref'], allow_noent=True)
+        logging.debug('Current {} commit: {}'.format(metadata['ref'],
+                                                     current_rev))
         if current_rev == commit:
             logging.info('Ref {} already at commit {}'
                          .format(metadata['ref'], commit))
             return
+        elif current_rev is not None:
+            # See if the current ref was built from this commit.
+            # Normally you'd read each commit and have ostree check if
+            # the roots are equal, but we don't have the new commit
+            # until the delta is executed. Since that's slow, fast path
+            # this by checking whether the tree checksums from the
+            # commits match like ostree_repo_file_equal() eventually
+            # does.
+            commit_variant = delta.get_child_value(4)
+            _, current_variant, _ = repo.load_commit(current_rev)
+
+            commit_tree_content_checksum = commit_variant.get_child_value(
+                COMMIT_TREE_CONTENT_CHECKSUM_INDEX)
+            commit_tree_metadata_checksum = commit_variant.get_child_value(
+                COMMIT_TREE_METADATA_CHECKSUM_INDEX)
+            current_tree_content_checksum = current_variant.get_child_value(
+                COMMIT_TREE_CONTENT_CHECKSUM_INDEX)
+            current_tree_metadata_checksum = current_variant.get_child_value(
+                COMMIT_TREE_METADATA_CHECKSUM_INDEX)
+
+            if (commit_tree_content_checksum == current_tree_content_checksum) and \
+               (commit_tree_metadata_checksum == current_tree_metadata_checksum):
+                logging.info('Ref {} built from commit {}'
+                             .format(metadata['ref'], commit))
+                return
 
         try:
             # Prepare transaction
             repo.prepare_transaction(None)
-            repo.transaction_set_ref(None, metadata['ref'], commit)
 
             # Execute the delta
             flatpak_file = Gio.File.new_for_path(flatpak)
@@ -174,12 +328,16 @@ class FlatpakImporter():
             else:
                 raise Exception("Committed metadata does not match the static delta header")
 
+            # Copy the commit to get correct collection and ref bindings
+            new_commit = FlatpakImporter._copy_commit(repo, commit,
+                                                      metadata['ref'])
+
             # Sign the commit
             if sign_key:
-                logging.info("Signing with key {} from {}".format(sign_key,
-                                                                  keyring_dir))
+                logging.info("Signing with key {} from {}"
+                             .format(sign_key, keyring_dir.get_path()))
                 try:
-                    repo.sign_commit(commit_checksum=commit,
+                    repo.sign_commit(commit_checksum=new_commit,
                                      key_id=sign_key,
                                      homedir=gpg_homedir,
                                      cancellable=None)
@@ -189,6 +347,12 @@ class FlatpakImporter():
                         logging.debug("already signed with key " + sign_key)
                     else:
                         raise
+
+            # Set the ref to the new commit. Ideally this would use
+            # transaction_set_collection_ref, but that's not available
+            # on SOMA and the commit was set to use this repo's
+            # collection ID, so it wouldn't make any difference.
+            repo.transaction_set_ref(None, metadata['ref'], new_commit)
 
             # Commit the transaction
             repo.commit_transaction(None)
