@@ -335,7 +335,7 @@ class FlatpakImporter():
             # Sign the commit
             if sign_key:
                 logging.info("Signing with key {} from {}"
-                             .format(sign_key, keyring_dir.get_path()))
+                             .format(sign_key, gpg_homedir))
                 try:
                     repo.sign_commit(commit_checksum=new_commit,
                                      key_id=sign_key,
