@@ -268,31 +268,6 @@ class FlatpakImporter():
             logging.info('Ref {} already at commit {}'
                          .format(metadata['ref'], commit))
             return
-        elif current_rev is not None:
-            # See if the current ref was built from this commit.
-            # Normally you'd read each commit and have ostree check if
-            # the roots are equal, but we don't have the new commit
-            # until the delta is executed. Since that's slow, fast path
-            # this by checking whether the tree checksums from the
-            # commits match like ostree_repo_file_equal() eventually
-            # does.
-            commit_variant = delta.get_child_value(4)
-            _, current_variant, _ = repo.load_commit(current_rev)
-
-            commit_tree_content_checksum = commit_variant.get_child_value(
-                COMMIT_TREE_CONTENT_CHECKSUM_INDEX)
-            commit_tree_metadata_checksum = commit_variant.get_child_value(
-                COMMIT_TREE_METADATA_CHECKSUM_INDEX)
-            current_tree_content_checksum = current_variant.get_child_value(
-                COMMIT_TREE_CONTENT_CHECKSUM_INDEX)
-            current_tree_metadata_checksum = current_variant.get_child_value(
-                COMMIT_TREE_METADATA_CHECKSUM_INDEX)
-
-            if (commit_tree_content_checksum == current_tree_content_checksum) and \
-               (commit_tree_metadata_checksum == current_tree_metadata_checksum):
-                logging.info('Ref {} built from commit {}'
-                             .format(metadata['ref'], commit))
-                return
 
         try:
             # Prepare transaction
