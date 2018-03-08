@@ -82,24 +82,25 @@ class UploadWebApp(Flask):
         try:
             task_id = int(request.args['task'])
         except KeyError:
-            return self._response(400, "Task argument required")
+            return self.build_response(400, "Task argument required")
         except ValueError:
-            return self._response(400, "Task argument must be integer")
+            return self.build_response(400, "Task argument must be integer")
 
         # Lookup the task ID
         task = self._task_queue.get_task(task_id)
 
         if task is None:
-            return self._response(404, "Task {} does not exist".format(task_id))
+            return self.build_response(404, "Task {} does not exist".format(task_id))
 
         if not isinstance(task, allowed_task):
-            return self._response(400, "Task {} is not a {} task".format(task_id,
-                                                                         request.path))
+            err_message = "Task {} is not a {} task".format(task_id,
+                                                            request.path)
+            return self.build_response(400, err_message)
 
         # Format the task state
         state = task.get_state_name()
         msg = 'Task {} state is {}'.format(task_id, state)
-        return self._response(200, msg, state=state)
+        return self.build_response(200, msg, state=state)
 
     @staticmethod
     def index():
@@ -226,25 +227,7 @@ class OstreeUploadServer(object):
 
         self._managed_repos = {}
 
-    def run(self):
-        # Array since we need to pass by ref
-        latest_task_complete = [time()]
-        latest_maintenance_complete = time()
-        active_upload_counter = ThreadsafeCounter()
-
-        task_queue = TaskQueue()
-
-        logging.info("Starting server on %d...", self._port)
-
-        logging.debug("Task completed callback %s", latest_task_complete)
-
-        def completed_callback(latest_task_complete):
-            logging.debug("Task completed callback %s", latest_task_complete)
-            latest_task_complete[:] = [time()]
-
-        workers = WorkerPoolExecutor(partial(completed_callback, latest_task_complete))
-        workers.start(task_queue, self._workers)
-
+    def parse_config(self):
         remote_push_adapter_map = {}
 
         config = SafeConfigParser(allow_no_value=True)
@@ -296,6 +279,76 @@ class OstreeUploadServer(object):
         if config.has_section('server'):
             do_maintenance = config.getboolean('server', 'maintenance')
 
+        return remote_push_adapter_map, users, do_maintenance
+
+    def perform_maintenance(self, workers, task_queue, latest_maintenance_complete,
+                            latest_task_complete):
+        time_since_maintenance = time() - latest_maintenance_complete
+        time_since_task = time() - latest_task_complete[0]
+        logging.debug("{:.1f} complete".format(time_since_task))
+
+        maintenance_msg_format = "{:.1f} since last task, {:.1f}/{} since last maintenance"
+        logging.debug(maintenance_msg_format.format(time_since_task,
+                                                    time_since_maintenance,
+                                                    MAINTENANCE_WAIT))
+        if time_since_maintenance > time_since_task:
+            # Uploads have been processed since last maintenance
+            logging.debug("Maintenance needed")
+            if time_since_task >= MAINTENANCE_WAIT:
+                logging.debug("Idle. Performing maintenance")
+                workers.stop()
+
+                repo_paths = self._managed_repos.values()
+                logging.info("Performing maintenance on repos: %s", repo_paths)
+                for active_repo in repo_paths:
+                    logging.info("Performing maintenance on %s", active_repo)
+
+                    if not os.path.isdir(active_repo):
+                        logging.warn("Repo %s doesn't exist - skipping mainenance!",
+                                     active_repo)
+                        continue
+
+                    with RepoLock(active_repo, exclusive=True):
+                        try:
+                            output = check_output(["flatpak",
+                                                   "build-update-repo",
+                                                   "--generate-static-deltas",
+                                                   "--prune",
+                                                   active_repo],
+                                                  stderr=STDOUT)
+                            logging.info("Completed maintenance on %s: %s",
+                                         active_repo, output)
+                        except CalledProcessError as err:
+                            logging.error("ERROR! Maintenance task failed!")
+                            logging.error(err)
+
+                workers.start(task_queue, self._workers)
+
+                latest_maintenance_complete = time()
+
+        return latest_maintenance_complete
+
+    def run(self):
+        # Array since we need to pass by ref
+        last_task_complete = [time()]
+        last_maintenance_complete = time()
+        active_upload_counter = ThreadsafeCounter()
+
+        task_queue = TaskQueue()
+
+        logging.info("Starting server on %d...", self._port)
+
+        logging.debug("Task completed callback %s", last_task_complete)
+
+        def completed_callback(last_task_complete):
+            logging.debug("Task completed callback %s", last_task_complete)
+            last_task_complete[:] = [time()]
+
+        workers = WorkerPoolExecutor(partial(completed_callback, last_task_complete))
+        workers.start(task_queue, self._workers)
+
+        remote_push_adapter_map, users, do_maintenance = self.parse_config()
+
         webapp = UploadWebApp(__name__,
                               users,
                               self._managed_repos,
@@ -317,51 +370,12 @@ class OstreeUploadServer(object):
                               str(active_upload_counter.count))
 
                 # Continue looping if maintenance not desired
-                if not do_maintenance:
-                    continue
+                if do_maintenance:
+                    last_maintenance_complete = self.perform_maintenance(workers,
+                                                                         task_queue,
+                                                                         last_maintenance_complete,
+                                                                         last_task_complete)
 
-                time_since_maintenance = time() - latest_maintenance_complete
-                time_since_task = time() - latest_task_complete[0]
-                logging.debug("{:.1f} complete".format(time_since_task))
-
-                maintenance_msg_format = "{:.1f} since last task, {:.1f}/{} since last maintenance"
-                logging.debug(maintenance_msg_format.format(time_since_task,
-                                                            time_since_maintenance,
-                                                            MAINTENANCE_WAIT))
-                if time_since_maintenance > time_since_task:
-                    # Uploads have been processed since last maintenance
-                    logging.debug("Maintenance needed")
-                    if time_since_task >= MAINTENANCE_WAIT:
-                        logging.debug("Idle. Performing maintenance")
-                        workers.stop()
-
-                        repo_paths = self._managed_repos.values()
-                        logging.info("Performing maintenance on repos: %s", repo_paths)
-                        for active_repo in repo_paths:
-                            logging.info("Performing maintenance on %s", active_repo)
-
-                            if not os.path.isdir(active_repo):
-                                logging.warn("Repo %s doesn't exist - skipping mainenance!",
-                                             active_repo)
-                                continue
-
-                            with RepoLock(active_repo, exclusive=True):
-                                try:
-                                    output = check_output(["flatpak",
-                                                           "build-update-repo",
-                                                           "--generate-static-deltas",
-                                                           "--prune",
-                                                           active_repo],
-                                                          stderr=STDOUT)
-                                    logging.info("Completed maintenance on %s: %s",
-                                                 active_repo, output)
-                                except CalledProcessError as err:
-                                    logging.error("ERROR! Maintenance task failed!")
-                                    logging.error(err)
-
-                            latest_maintenance_complete = time()
-
-                        workers.start(task_queue, self._workers)
 
             except (KeyboardInterrupt, SystemExit):
                 break
