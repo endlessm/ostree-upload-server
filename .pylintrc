@@ -1,0 +1,9 @@
+[MESSAGES CONTROL]
+
+disable= deprecated-lambda,
+         no-init,
+         missing-docstring,
+         superfluous-parens,
+         too-few-public-methods,
+         wrong-import-order,
+         wrong-import-position
