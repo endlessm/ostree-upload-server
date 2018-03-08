@@ -112,30 +112,33 @@ class UploadWebApp(Flask):
         """
         Receive a flatpak bundle
         """
+
+        # Makes invocations of static methods shorter
+        cls = self.__class__
+
         if not self._authenticator.authenticate(request):
-            return self.__class__.request_authentication()
+            return cls.request_authentication()
 
         if request.method == "POST":
             logging.debug("/upload: POST request start")
 
             with self._upload_counter:
                 if 'file' not in request.files:
-                    return self._response(400, "No file in request")
+                    return cls.build_generic_error("No file in request")
 
                 upload = request.files['file']
                 if upload.filename == "":
-                    return self._response(400, "No filename in request")
+                    return cls.build_generic_error("No filename in request")
 
                 repo_name = request.form.get('repo', None)
                 logging.info("Target repo: %s", repo_name)
 
                 if not repo_name:
-                    logging.error("ERROR! Target repo not provided!")
-                    return self._response(400, "ERROR! 'repo' parameter not set!")
+                    return cls.build_generic_error("ERROR! 'repo' parameter not set!")
 
                 if repo_name not in self._repos.keys():
-                    logging.error("ERROR! Target repo '%s' is invalid!", repo_name)
-                    return self._response(400, "ERROR! 'repo' parameter is not valid!")
+                    error_msg = "ERROR! Target repo '{}' is invalid!".format(repo_name)
+                    return cls.build_generic_error(error_msg)
 
                 repo_path = self._repos[repo_name]
 
@@ -156,20 +159,23 @@ class UploadWebApp(Flask):
 
                 logging.debug("/upload: POST request completed for %s", upload.filename)
 
-                return self._response(200, "Importing bundle",
-                                      task=task.get_id())
+                return cls.build_response(200, "Importing bundle",
+                                          task=task.get_id())
         elif request.method == "GET":
             logging.debug("/upload: GET request %s", request.full_path)
             return self._get_request_task(ReceiveTask)
         else:
-            return self._response(400, "Only GET and POST methods supported")
+            return cls.build_generic_error("Only GET and POST methods supported")
 
     def push(self):
         """
         Extract a flatpak bundle from local repository and push to a remote
         """
+        # Makes invocations of static methods shorter
+        cls = self.__class__
+
         if not self._authenticator.authenticate(request):
-            return self.__class__.request_authentication()
+            return cls.request_authentication()
 
         logging.debug(request.args)
         if request.method == 'PUT':
@@ -177,26 +183,29 @@ class UploadWebApp(Flask):
                 ref = request.args['ref']
                 remote = request.args['remote']
             except KeyError:
-                return self.__class__.build_response(400,
-                                                     "ref and remote arguments required")
+                return cls.build_generic_error("ref and remote arguments required")
 
             logging.debug("/push: %s to %s", ref, remote)
             if not remote in self._remote_push_adapter_map:
-                return self.__class__.build_response(400,
-                                                     "Remote is not in the whitelist")
+                return cls.build_generic_error("Remote is not in the whitelist")
 
             adapter = self._remote_push_adapter_map[remote]
             task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
             self._task_queue.add_task(task)
 
-            return self.__class__.build_response(200, "Pushing {0} to {1}".format(ref, remote),
-                                                 task=task.get_id())
+            return cls.build_response(200, "Pushing {0} to {1}".format(ref, remote),
+                                      task=task.get_id())
 
         elif request.method == "GET":
             logging.debug("/push: GET request %s", request.full_path)
             return self._get_request_task(PushTask)
         else:
-            return self.__class__.build_response(400, "Only GET and PUT methods supported")
+            return cls.build_generic_error("Only GET and PUT methods supported")
+
+    @staticmethod
+    def build_generic_error(message):
+        logging.error(message)
+        return UploadWebApp.build_response(400, message)
 
     @staticmethod
     def build_response(status_code, message, **kwargs):
@@ -375,8 +384,6 @@ class OstreeUploadServer(object):
                                                                          task_queue,
                                                                          last_maintenance_complete,
                                                                          last_task_complete)
-
-
             except (KeyboardInterrupt, SystemExit):
                 break
 
