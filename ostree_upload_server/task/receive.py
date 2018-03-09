@@ -3,7 +3,7 @@ import os
 
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
-from ostree_upload_server.flatpak_importer import FlatpakImporter
+from ostree_upload_server.bundle_importer import BundleImporter
 from ostree_upload_server.repolock import RepoLock
 from ostree_upload_server.task.base import BaseTask
 from ostree_upload_server.task.state import TaskState
@@ -21,22 +21,21 @@ class ReceiveTask(BaseTask):
         self._repo = repo
 
     def run(self):
-        logging.info("Processing task {}".format(self.get_name()))
+        logging.info("Processing task %s", self.get_name())
 
         self.set_state(TaskState.PROCESSING)
 
         with RepoLock(self._repo):
             try:
-                logging.info("Trying to import {} into {}".format(self._upload,
-                                                                  self._repo))
-                FlatpakImporter.import_flatpak(self._upload, self._repo)
+                logging.info("Trying to import %s into %s", self._upload, self._repo)
+                BundleImporter.import_bundle(self._upload, self._repo)
                 self.set_state(TaskState.COMPLETED)
 
-                logging.info("Completed task {}".format(self.get_name()))
-            except Exception as e:
+                logging.info("Completed task %s", self.get_name())
+            except Exception as err:
                 self.set_state(TaskState.FAILED)
 
-                logging.error("Failed task {}".format(e))
+                logging.error("Failed task %s", err)
             finally:
                 # TODO: uploads are always deleted for now, but in the
                 # future it might want to be kept for inspection for

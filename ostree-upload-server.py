@@ -110,7 +110,7 @@ class UploadWebApp(Flask):
 
     def upload(self):
         """
-        Receive a flatpak bundle
+        Handler for receiving a bundle
         """
 
         # Makes invocations of static methods shorter
@@ -169,7 +169,7 @@ class UploadWebApp(Flask):
 
     def push(self):
         """
-        Extract a flatpak bundle from local repository and push to a remote
+        Extract a bundle from local repository and push to a remote
         """
         # Makes invocations of static methods shorter
         cls = self.__class__
