@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y gir1.2-ostree-1.0 \
                                          python-greenlet \
                                          python-itsdangerous \
                                          python-jinja2 \
+                                         python-magic \
                                          python-markupsafe \
                                          python-packaging \
                                          python-passlib \
@@ -55,4 +56,4 @@ RUN mkdir /repo && \
 
 USER ostree-server
 
-ENTRYPOINT ["/usr/bin/python2", "ostree-upload-server.py", "/repo"]
+ENTRYPOINT ["/usr/bin/python2", "ostree-upload-server.py"]

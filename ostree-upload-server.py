@@ -28,7 +28,6 @@ from ostree_upload_server.push_adapter.scp import ScpPushAdapter
 from ostree_upload_server.repolock import RepoLock
 from ostree_upload_server.task.push import PushTask
 from ostree_upload_server.task.receive import ReceiveTask
-from ostree_upload_server.task.state import TaskState
 from ostree_upload_server.task_queue import TaskQueue
 from ostree_upload_server.threadsafe_counter import ThreadsafeCounter
 from ostree_upload_server.worker_pool_executor import WorkerPoolExecutor
@@ -55,7 +54,7 @@ class UploadWebApp(Flask):
         self._remote_push_adapter_map = remote_push_adapter_map
         self._task_queue = task_queue
 
-        self.route("/")(self.index)
+        self.route("/")(self.__class__.index)
         self.route("/upload", methods=["GET", "POST"])(self.upload)
         self.route("/push", methods=["GET", "PUT"])(self.push)
 
@@ -64,10 +63,11 @@ class UploadWebApp(Flask):
         self._tempdir = tempfile.mkdtemp(dir="/var/tmp", prefix="ostree-upload-server-")
         atexit.register(shutil.rmtree, self._tempdir)
 
-    def _request_authentication(self):
+    @staticmethod
+    def request_authentication():
         """Sends a 401 response that enables basic auth"""
-        auth_message = { 'success': False,
-                         'message': "Authentication required" }
+        auth_message = {'success': False,
+                        'message': "Authentication required"}
         return Response(json.dumps(auth_message),
                         401,
                         {'WWW-Authenticate': 'Basic realm="Login Required"'})
@@ -82,92 +82,100 @@ class UploadWebApp(Flask):
         try:
             task_id = int(request.args['task'])
         except KeyError:
-            return self._response(400, "Task argument required")
+            return self.build_response(400, "Task argument required")
         except ValueError:
-            return self._response(400, "Task argument must be integer")
+            return self.build_response(400, "Task argument must be integer")
 
         # Lookup the task ID
         task = self._task_queue.get_task(task_id)
 
         if task is None:
-            return self._response(404, "Task {} does not exist".format(task_id))
+            return self.build_response(404, "Task {} does not exist".format(task_id))
 
         if not isinstance(task, allowed_task):
-            return self._response(400, "Task {} is not a {} task".format(task_id,
-                                                                         request.path))
+            err_message = "Task {} is not a {} task".format(task_id,
+                                                            request.path)
+            return self.build_response(400, err_message)
 
         # Format the task state
         state = task.get_state_name()
         msg = 'Task {} state is {}'.format(task_id, state)
-        return self._response(200, msg, state=state)
+        return self.build_response(200, msg, state=state)
 
-    def index(self):
+    @staticmethod
+    def index():
         links = "<a href='{0}'>upload</a>".format(url_for("upload"))
         links += "<br /><a href='{0}'>push</a>".format(url_for("push"))
         return links
 
     def upload(self):
         """
-        Receive a flatpak bundle
+        Handler for receiving a bundle
         """
+
+        # Makes invocations of static methods shorter
+        cls = self.__class__
+
         if not self._authenticator.authenticate(request):
-            return self._request_authentication()
+            return cls.request_authentication()
 
         if request.method == "POST":
             logging.debug("/upload: POST request start")
 
             with self._upload_counter:
                 if 'file' not in request.files:
-                    return self._response(400, "No file in request")
+                    return cls.build_generic_error("No file in request")
 
                 upload = request.files['file']
                 if upload.filename == "":
-                    return self._response(400, "No filename in request")
+                    return cls.build_generic_error("No filename in request")
 
                 repo_name = request.form.get('repo', None)
-                logging.info("Target repo: {}".format(repo_name))
+                logging.info("Target repo: %s", repo_name)
 
                 if not repo_name:
-                    logging.error("ERROR! Target repo not provided!")
-                    return self._response(400, "ERROR! 'repo' parameter not set!")
+                    return cls.build_generic_error("ERROR! 'repo' parameter not set!")
 
                 if repo_name not in self._repos.keys():
-                    logging.error("ERROR! Target repo '{}' is invalid!".format(repo_name))
-                    return self._response(400, "ERROR! 'repo' parameter is not valid!".format(repo_name))
+                    error_msg = "ERROR! Target repo '{}' is invalid!".format(repo_name)
+                    return cls.build_generic_error(error_msg)
 
                 repo_path = self._repos[repo_name]
 
                 if not os.path.exists(repo_path):
-                    logging.warn("Directory {} not present. Creating it...".format(repo_path))
+                    logging.warn("Directory %s not present. Creating it...", repo_path)
                     try:
                         os.makedirs(repo_path)
                     except OSError as err:
                         if err.errno != errno.EEXIST:
                             raise
 
-                (f, real_name) = tempfile.mkstemp(dir=self._tempdir)
-                os.close(f)
+                (file_ptr, real_name) = tempfile.mkstemp(dir=self._tempdir)
+                os.close(file_ptr)
                 upload.save(real_name)
 
                 task = ReceiveTask(upload.filename, real_name, repo_path)
                 self._task_queue.add_task(task)
 
-                logging.debug("/upload: POST request completed for ".format(upload.filename))
+                logging.debug("/upload: POST request completed for %s", upload.filename)
 
-                return self._response(200, "Importing bundle",
-                                      task=task.get_id())
+                return cls.build_response(200, "Importing bundle",
+                                          task=task.get_id())
         elif request.method == "GET":
-            logging.debug("/upload: GET request {}".format(request.full_path))
+            logging.debug("/upload: GET request %s", request.full_path)
             return self._get_request_task(ReceiveTask)
         else:
-            return self._response(400, "Only GET and POST methods supported")
+            return cls.build_generic_error("Only GET and POST methods supported")
 
     def push(self):
         """
-        Extract a flatpak bundle from local repository and push to a remote
+        Extract a bundle from local repository and push to a remote
         """
+        # Makes invocations of static methods shorter
+        cls = self.__class__
+
         if not self._authenticator.authenticate(request):
-            return self._request_authentication()
+            return cls.request_authentication()
 
         logging.debug(request.args)
         if request.method == 'PUT':
@@ -175,24 +183,32 @@ class UploadWebApp(Flask):
                 ref = request.args['ref']
                 remote = request.args['remote']
             except KeyError:
-                return self._response(400,
-                                      "ref and remote arguments required")
-            logging.debug("/push: {0} to {1}".format(ref, remote))
+                return cls.build_generic_error("ref and remote arguments required")
+
+            logging.debug("/push: %s to %s", ref, remote)
             if not remote in self._remote_push_adapter_map:
-                return self._response(400,
-                                      "Remote is not in the whitelist")
+                return cls.build_generic_error("Remote is not in the whitelist")
+
             adapter = self._remote_push_adapter_map[remote]
             task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
             self._task_queue.add_task(task)
-            return self._response(200, "Pushing {0} to {1}".format(ref, remote),
-                                  task=task.get_id())
+
+            return cls.build_response(200, "Pushing {0} to {1}".format(ref, remote),
+                                      task=task.get_id())
+
         elif request.method == "GET":
-            logging.debug("/push: GET request {}".format(request.full_path))
+            logging.debug("/push: GET request %s", request.full_path)
             return self._get_request_task(PushTask)
         else:
-            return self._response(400, "Only GET and PUT methods supported")
+            return cls.build_generic_error("Only GET and PUT methods supported")
 
-    def _response(self, status_code, message, **kwargs):
+    @staticmethod
+    def build_generic_error(message):
+        logging.error(message)
+        return UploadWebApp.build_response(400, message)
+
+    @staticmethod
+    def build_response(status_code, message, **kwargs):
         body = {
             'success': status.is_success(status_code),
             'message': message,
@@ -202,13 +218,13 @@ class UploadWebApp(Flask):
 
 
 class OstreeUploadServer(object):
-    CONFIG_LOCATIONS = [ '/etc/ostree/ostree-upload-server.conf',
-                         os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
-                         'ostree-upload-server.conf' ]
+    CONFIG_LOCATIONS = ['/etc/ostree/ostree-upload-server.conf',
+                        os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
+                        'ostree-upload-server.conf']
 
-    ADAPTER_IMPL_CLASSES = [ DummyPushAdapter,
-                             HttpPushAdapter,
-                             ScpPushAdapter ]
+    ADAPTER_IMPL_CLASSES = [DummyPushAdapter,
+                            HttpPushAdapter,
+                            ScpPushAdapter]
 
     def __init__(self, port, workers):
         self._port = port
@@ -220,28 +236,10 @@ class OstreeUploadServer(object):
 
         self._managed_repos = {}
 
-    def run(self):
-        # Array since we need to pass by ref
-        latest_task_complete = [time()]
-        latest_maintenance_complete = time()
-        active_upload_counter = ThreadsafeCounter()
-
-        task_queue = TaskQueue()
-
-        logging.info("Starting server on %d..." % self._port)
-
-        logging.debug("Task completed callback %s", latest_task_complete)
-
-        def completed_callback(latest_task_complete):
-            logging.debug("Task completed callback %s", latest_task_complete)
-            latest_task_complete[:] = [time()]
-
-        workers = WorkerPoolExecutor(partial(completed_callback, latest_task_complete))
-        workers.start(task_queue, self._workers)
-
+    def parse_config(self):
         remote_push_adapter_map = {}
 
-        config = SafeConfigParser(allow_no_value = True)
+        config = SafeConfigParser(allow_no_value=True)
         config.read(OstreeUploadServer.CONFIG_LOCATIONS)
 
         for section in config.sections():
@@ -251,14 +249,12 @@ class OstreeUploadServer(object):
             remote_name = section.split('-')[1]
             adapter_type = remote_dict['type']
             if adapter_type in self._adapters.keys():
-                logging.debug("Setting up adapter {0}, type {1}".format(remote_name,
-                                                                        adapter_type))
+                logging.debug("Setting up adapter %s, type %s", remote_name, adapter_type)
                 adapter_impl_class = self._adapters[adapter_type]
                 remote_push_adapter_map[remote_name] = adapter_impl_class(remote_name,
                                                                           remote_dict)
             else:
-                logging.error("Adapter {0}: unknown type {1}".format(remote_name,
-                                                                     adapter_type))
+                logging.error("Adapter %s: unknown type %s", remote_name, adapter_type)
 
         # Enumerate all the allowed repos
         for section in config.sections():
@@ -271,10 +267,9 @@ class OstreeUploadServer(object):
 
             self._managed_repos[repo_name] = repo_path
 
-            logging.info("Repo {} -> {} configuration added".format(repo_name,
-                                                                    repo_path))
+            logging.info("Repo %s -> %s configuration added", repo_name, repo_path)
 
-        if len(self._managed_repos) == 0:
+        if not self._managed_repos:
             raise Exception('No repositories configured')
 
         users = None
@@ -285,13 +280,83 @@ class OstreeUploadServer(object):
         if users:
             logging.debug("Users configured:")
             for user in users.keys():
-                logging.debug(" - {}".format(user))
+                logging.debug(" - %s", user)
         else:
             logging.warning("Warning! No authentication configured!")
 
         do_maintenance = True
         if config.has_section('server'):
             do_maintenance = config.getboolean('server', 'maintenance')
+
+        return remote_push_adapter_map, users, do_maintenance
+
+    def perform_maintenance(self, workers, task_queue, latest_maintenance_complete,
+                            latest_task_complete):
+        time_since_maintenance = time() - latest_maintenance_complete
+        time_since_task = time() - latest_task_complete[0]
+        logging.debug("{:.1f} complete".format(time_since_task))
+
+        maintenance_msg_format = "{:.1f} since last task, {:.1f}/{} since last maintenance"
+        logging.debug(maintenance_msg_format.format(time_since_task,
+                                                    time_since_maintenance,
+                                                    MAINTENANCE_WAIT))
+        if time_since_maintenance > time_since_task:
+            # Uploads have been processed since last maintenance
+            logging.debug("Maintenance needed")
+            if time_since_task >= MAINTENANCE_WAIT:
+                logging.debug("Idle. Performing maintenance")
+                workers.stop()
+
+                repo_paths = self._managed_repos.values()
+                logging.info("Performing maintenance on repos: %s", repo_paths)
+                for active_repo in repo_paths:
+                    logging.info("Performing maintenance on %s", active_repo)
+
+                    if not os.path.isdir(active_repo):
+                        logging.warn("Repo %s doesn't exist - skipping mainenance!",
+                                     active_repo)
+                        continue
+
+                    with RepoLock(active_repo, exclusive=True):
+                        try:
+                            output = check_output(["flatpak",
+                                                   "build-update-repo",
+                                                   "--generate-static-deltas",
+                                                   "--prune",
+                                                   active_repo],
+                                                  stderr=STDOUT)
+                            logging.info("Completed maintenance on %s: %s",
+                                         active_repo, output)
+                        except CalledProcessError as err:
+                            logging.error("ERROR! Maintenance task failed!")
+                            logging.error(err)
+
+                workers.start(task_queue, self._workers)
+
+                latest_maintenance_complete = time()
+
+        return latest_maintenance_complete
+
+    def run(self):
+        # Array since we need to pass by ref
+        last_task_complete = [time()]
+        last_maintenance_complete = time()
+        active_upload_counter = ThreadsafeCounter()
+
+        task_queue = TaskQueue()
+
+        logging.info("Starting server on %d...", self._port)
+
+        logging.debug("Task completed callback %s", last_task_complete)
+
+        def completed_callback(last_task_complete):
+            logging.debug("Task completed callback %s", last_task_complete)
+            last_task_complete[:] = [time()]
+
+        workers = WorkerPoolExecutor(partial(completed_callback, last_task_complete))
+        workers.start(task_queue, self._workers)
+
+        remote_push_adapter_map, users, do_maintenance = self.parse_config()
 
         webapp = UploadWebApp(__name__,
                               users,
@@ -303,58 +368,22 @@ class OstreeUploadServer(object):
         http_server = WSGIServer(('', self._port), webapp)
         http_server.start()
 
-        logging.info("Server started on %s" % self._port)
+        logging.info("Server started on %s", self._port)
 
         # loop until interrupted
         while True:
             try:
                 gsleep(5)
                 task_queue.join()
-                logging.debug("Task queue empty, {} uploads ongoing".format(str(active_upload_counter.count)))
+                logging.debug("Task queue empty, %s uploads ongoing",
+                              str(active_upload_counter.count))
 
                 # Continue looping if maintenance not desired
-                if not do_maintenance:
-                    continue
-
-                time_since_maintenance = time() - latest_maintenance_complete
-                time_since_task = time() - latest_task_complete[0]
-                logging.debug("{:.1f} complete".format(time_since_task))
-                logging.debug("{:.1f} since last task, {:.1f}/{} since last maintenance".format(time_since_task,
-                                                                                                time_since_maintenance,
-                                                                                                MAINTENANCE_WAIT))
-                if time_since_maintenance > time_since_task:
-                    # Uploads have been processed since last maintenance
-                    logging.debug("Maintenance needed")
-                    if time_since_task >= MAINTENANCE_WAIT:
-                        logging.debug("Idle. Performing maintenance")
-                        workers.stop()
-
-                        repo_paths = self._managed_repos.values()
-                        logging.info("Performing maintenance on repos: {}".format(repo_paths))
-                        for active_repo in repo_paths:
-                            logging.info("Performing maintenance on {}".format(active_repo))
-
-                            if not os.path.isdir(active_repo):
-                                logging.warn("Repo {} doesn't exist - skipping mainenance!".format(active_repo))
-                                continue
-
-                            with RepoLock(active_repo, exclusive=True):
-                                try:
-                                    output = check_output(["flatpak",
-                                                           "build-update-repo",
-                                                           "--generate-static-deltas",
-                                                           "--prune",
-                                                           active_repo],
-                                                          stderr=STDOUT)
-                                    logging.info("Completed maintenance on {}: {}".format(active_repo, output))
-                                except CalledProcessError as e:
-                                    logging.error("ERROR! Maintenance task failed!")
-                                    logging.error(e)
-
-                            latest_maintenance_complete = time()
-
-                        workers.start(task_queue, self._workers)
-
+                if do_maintenance:
+                    last_maintenance_complete = self.perform_maintenance(workers,
+                                                                         task_queue,
+                                                                         last_maintenance_complete,
+                                                                         last_task_complete)
             except (KeyboardInterrupt, SystemExit):
                 break
 
@@ -365,7 +394,7 @@ class OstreeUploadServer(object):
         workers.stop()
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument("-w", "--workers", type=int,

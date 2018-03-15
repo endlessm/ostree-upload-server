@@ -8,12 +8,21 @@ Check configuration in remotes.conf and flatpak-import.conf
 
 Launch container:
 
-  # docker run -it --rm \
+  # sudo docker run -it --rm \
       -p 127.0.0.1:5000:5000 \
       -v /tmp/ostree-upload-server.conf:/opt/ostree-upload-server/ostree-upload-server.conf \
       -v /tmp/flatpak-import.conf:/opt/ostree-upload-server/flatpak-import.conf \
       -v /tmp/eos-flatpak-keyring.gpg:/gpg/trusted-keys.gpg \
       -v /tmp/repo:/repo \
+      ostree-upload-server
+
+Launch container with test configuration:
+
+  # sudo docker run -it --rm \
+      -p 127.0.0.1:5000:5000 \
+      -v $(pwd)/test/ostree-upload-server.conf:/opt/ostree-upload-server/ostree-upload-server.conf \
+      -v $(pwd)/test/flatpak-import.conf:/opt/ostree-upload-server/flatpak-import.conf \
+      -v $(pwd)/test/gpg:/opt/ostree-upload-server/gpg \
       ostree-upload-server
 
 To upload a file with curl:
