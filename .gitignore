@@ -1,5 +1,5 @@
 venv/
 repo/
 
-.*.swp
+.*.sw[po]
 *.pyc
