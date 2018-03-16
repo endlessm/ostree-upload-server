@@ -177,13 +177,13 @@ def verify_commit_sig(repo, commit, gpg_homedir, keyring):
 
 # Update the repo metadata (summary, appstream, etc), but no
 # pruning or delta generation to make it fast
-def update_repo_metadata(self):
+def update_repo_metadata(repository_path, gpg_homedir, sign_key):
     cmd = ['flatpak', 'build-update-repo']
-    if self._gpg_homedir:
-        cmd.append('--gpg-homedir={}'.format(self._gpg_homedir))
-    if self._sign_key:
-        cmd.append('--gpg-sign={}'.format(self._sign_key))
-    cmd.append(self._repository_path)
+    if gpg_homedir:
+        cmd.append('--gpg-homedir={}'.format(gpg_homedir))
+    if sign_key:
+        cmd.append('--gpg-sign={}'.format(sign_key))
+    cmd.append(repository_path)
 
     logging.info('Updating repository metadata')
     logging.debug('Executing %s', ' '.join(cmd))
