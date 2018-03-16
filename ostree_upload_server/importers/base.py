@@ -4,7 +4,7 @@ from abc import ABCMeta, abstractmethod
 
 from gi.repository import GLib, Gio
 
-from .util import copy_commit, open_repository, verify_commit_sig
+from .util import copy_commit, open_repository, update_repo_metadata, verify_commit_sig
 
 
 class BaseImporter(object):
@@ -83,3 +83,7 @@ class BaseImporter(object):
         except:
             target_repo.abort_transaction(None)
             raise
+
+        logging.info("updating summary...")
+        update_repo_metadata(self._repo_path, self._gpg_homedir, self._sign_key)
+        logging.info("updating summary done...")

@@ -58,8 +58,6 @@ class TarImporter(BaseImporter):
             with tarfile.open(self._src_path) as tar_archive:
                 tar_archive.extractall(path=dest_path)
 
-            logging.info('Applying delta from \'%s\' to \'%s\'')
-
             self._source_repo_path = find_repo(dest_path)
             source_repo = open_repository(self._source_repo_path)
 
@@ -86,7 +84,7 @@ class TarImporter(BaseImporter):
             self._apply_commit_to_repo(commit, ref)
         finally:
             if path.isdir(dest_path):
-                logging.warn('Performing exception-triggered cleanup on %s...', dest_path)
+                logging.warn('Performing cleanup on %s...', dest_path)
                 rmtree(dest_path)
 
         logging.info('Import complete of \'%s\' into %s!', self._src_path, self._repo_path)
