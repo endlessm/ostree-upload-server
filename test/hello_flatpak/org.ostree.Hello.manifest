@@ -1,0 +1,22 @@
+{
+    "app-id": "org.ostree.Hello",
+    "runtime": "org.freedesktop.Platform",
+    "runtime-version": "1.6",
+    "sdk": "org.freedesktop.Sdk",
+    "command": "start.sh",
+    "modules": [
+        {
+            "name": "start",
+            "buildsystem": "simple",
+            "build-commands": [
+                "install -D start.sh /app/bin/start.sh"
+            ],
+            "sources": [
+                {
+                    "type": "file",
+                    "path": "start.sh"
+                }
+            ]
+        }
+    ]
+}
