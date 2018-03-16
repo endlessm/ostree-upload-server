@@ -1,0 +1,32 @@
+This is a revocation certificate for the OpenPGP key:
+
+pub   rsa2048 2018-03-16 [SCEA]
+      EF1EDABC42F683F14CC1E42FCE5650C306199B31
+uid          Test Flatpak Verification Key <verification@ostree.com>
+
+A revocation certificate is a kind of "kill switch" to publicly
+declare that a key shall not anymore be used.  It is not possible
+to retract such a revocation certificate once it has been published.
+
+Use it to revoke this key in case of a compromise or loss of
+the secret key.  However, if the secret key is still accessible,
+it is better to generate a new revocation certificate and give
+a reason for the revocation.  For details see the description of
+of the gpg command "--generate-revocation" in the GnuPG manual.
+
+To avoid an accidental use of this file, a colon has been inserted
+before the 5 dashes below.  Remove this colon with a text editor
+before importing and publishing this revocation certificate.
+
+:-----BEGIN PGP PUBLIC KEY BLOCK-----
+Comment: This is a revocation certificate
+
+iQE2BCABCgAgFiEE7x7avEL2g/FMweQvzlZQwwYZmzEFAlqsGWICHQAACgkQzlZQ
+wwYZmzGuPQf/VAZ48kzO3ZXkczVCXcgHzx1yRwz8z13otQCLVgnNuTEW7NAnkv5S
+D1MsTequfsw28SOF+m9bmJPhpjYlScPrVozOrJwznN6ARueUb6LtQKVFTVVLVlUH
+9tx8UXWCXLzqBEwcKw0h+BAqYvlkfkWxUvhUXUqQ9vK8L+l1ZaS61Evsm5ZTh1zZ
+qo0ZJ3S5RjHwpVI/jzV9oC3Z3doON2CxGSWnIZu8uPpMsBAP1V3n/UeBmgrjBHTQ
+FtZyTOTS8DbGGoRJKwjtZUh8XK4MGaSc9kvcwBKKwSR36obQP7lW3fqvTc+MfzEO
++ZzTLoUKIDaXVpHi9sOgkQcAghJV83dl3w==
+=eJZ9
+-----END PGP PUBLIC KEY BLOCK-----
