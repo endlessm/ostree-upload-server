@@ -2,11 +2,7 @@ import inspect
 import logging
 import os
 
-# This is NOT the pypi python-magic module but the file-magic
-# module from there. It corresponds to the python-magic OS package
-# for Ubuntu for which the former has no candidate. The packages are
-# not API compatible!
-import magic as file_magic
+import magic
 
 from ConfigParser import ConfigParser
 
@@ -51,10 +47,7 @@ class BundleImporter(object):
             logging.info("Set %s = '%s'", arg, locals()[arg])
 
         # Find the appropriate importer based on mimetype
-        magic = file_magic.open(file_magic.MIME_TYPE)
-        magic.load()
-
-        mime_type = magic.file(bundle)
+        mime_type = magic.from_file(bundle, mime=True)
 
         importer_class = filter(lambda ext: mime_type == ext.MIME_TYPE,
                                 BundleImporter.BUNDLE_IMPORTERS)[0]
