@@ -9,7 +9,7 @@ gi==1.2
 greenlet==0.4.13
 idna==2.6
 itsdangerous==0.24
-Jinja2==2.10
+Jinja2==2.10.1
 MarkupSafe==1.0
 packaging==17.1
 pyparsing==2.2.0
