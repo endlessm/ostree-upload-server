@@ -7,4 +7,4 @@ from getpass import getpass
 from passlib.hash import pbkdf2_sha256
 
 password = getpass()
-print pbkdf2_sha256.encrypt(password)
+print(pbkdf2_sha256.encrypt(password))

@@ -61,7 +61,7 @@ class FlatpakImporter(BaseImporter):
         OSTree.validate_structureof_csum_v(checksum_variant)
 
         metadata_variant = delta.get_child_value(0)
-        logging.debug("Metadata keys: %s", metadata_variant.keys())
+        logging.debug("Metadata keys: %s", list(metadata_variant.keys()))
 
         commit = OSTree.checksum_from_bytes_v(checksum_variant)
 

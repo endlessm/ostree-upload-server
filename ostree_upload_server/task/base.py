@@ -6,9 +6,7 @@ from gevent.event import Event
 from ostree_upload_server.task.state import TaskState
 
 
-class BaseTask:
-    __metaclass__ = ABCMeta
-
+class BaseTask(metaclass=ABCMeta):
     _next_task_id = 0
 
     def __init__(self, name):

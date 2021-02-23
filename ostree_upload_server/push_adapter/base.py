@@ -1,9 +1,7 @@
 from abc import ABCMeta, abstractmethod
 
 
-class BasePushAdapter():
-    __metaclass__ = ABCMeta
-
+class BasePushAdapter(metaclass=ABCMeta):
     def __init__(self, name):
         self._name = name
 

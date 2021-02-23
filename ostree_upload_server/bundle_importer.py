@@ -4,7 +4,7 @@ import os
 
 import magic
 
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 
 from .importers.flatpak import FlatpakImporter
 from .importers.tar import TarImporter, TgzImporter

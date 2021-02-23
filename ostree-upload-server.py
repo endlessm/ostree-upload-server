@@ -8,7 +8,7 @@ import os
 import shutil
 import tempfile
 
-from ConfigParser import SafeConfigParser
+from configparser import SafeConfigParser
 from functools import partial
 from time import time
 
@@ -137,7 +137,7 @@ class UploadWebApp(Flask):
                     return cls.build_generic_error(
                         "ERROR! 'repo' parameter not set!")
 
-                if repo_name not in self._repos.keys():
+                if repo_name not in self._repos:
                     error_msg = ("ERROR! Target repo '{}' is invalid!"
                                  .format(repo_name))
                     return cls.build_generic_error(error_msg)
@@ -259,7 +259,7 @@ class OstreeUploadServer(object):
             remote_dict = dict(config.items(section))
             remote_name = section.split('-')[1]
             adapter_type = remote_dict['type']
-            if adapter_type in self._adapters.keys():
+            if adapter_type in self._adapters:
                 logging.debug("Setting up adapter %s, type %s", remote_name,
                               adapter_type)
                 adapter_impl_class = self._adapters[adapter_type]
@@ -294,7 +294,7 @@ class OstreeUploadServer(object):
 
         if users:
             logging.debug("Users configured:")
-            for user in users.keys():
+            for user in sorted(users):
                 logging.debug(" - %s", user)
         else:
             logging.warning("Warning! No authentication configured!")
@@ -323,7 +323,7 @@ class OstreeUploadServer(object):
                 logging.debug("Idle. Performing maintenance")
                 workers.stop()
 
-                repo_paths = self._managed_repos.values()
+                repo_paths = list(self._managed_repos.values())
                 logging.info("Performing maintenance on repos: %s", repo_paths)
                 for active_repo in repo_paths:
                     logging.info("Performing maintenance on %s", active_repo)

@@ -9,9 +9,7 @@ from .util import (
 )
 
 
-class BaseImporter(object):
-    __metaclass__ = ABCMeta
-
+class BaseImporter(object, metaclass=ABCMeta):
     def __init__(self, src_path, repository_path, gpg_homedir, keyring,
                  sign_key):
         self._src_path = src_path

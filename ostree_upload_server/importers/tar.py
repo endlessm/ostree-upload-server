@@ -2,8 +2,8 @@ import logging
 import tempfile
 import tarfile
 
-import urllib
-import urlparse
+from urllib.parse import urljoin
+from urllib.request import pathname2url
 
 from gi.repository import GLib
 
@@ -41,8 +41,8 @@ class TarImporter(BaseImporter):
             'inherit-transaction': GLib.Variant('b', True),
         })
 
-        source_repo_uri = urlparse.urljoin(
-            'file:', urllib.pathname2url(self._source_repo_path))
+        source_repo_uri = urljoin('file:',
+                                  pathname2url(self._source_repo_path))
         target_repo.pull_with_options(source_repo_uri,
                                       options,
                                       None, None)
@@ -81,9 +81,7 @@ class TarImporter(BaseImporter):
                 logging.error(error_msg)
                 raise RuntimeError(error_msg)
 
-            ref = refs.keys()[0]
-            commit = refs[ref]
-
+            ref, commit = refs.popitem()
             logging.info("Ref: %s", ref)
             logging.info("Commit: %s", commit)
 
