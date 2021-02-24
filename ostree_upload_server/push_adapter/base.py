@@ -12,4 +12,5 @@ class BasePushAdapter():
 
     @abstractmethod
     def push(self, bundle):
-        raise Error('Cannot invoke BasePushAdapter.push() method!')
+        raise NotImplementedError(
+            'Cannot invoke BasePushAdapter.push() method!')

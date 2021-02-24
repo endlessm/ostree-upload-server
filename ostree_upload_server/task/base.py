@@ -42,4 +42,4 @@ class BaseTask:
 
     @abstractmethod
     def run(self):
-        raise Error('Cannot invoke BaseTask.run() method!')
+        raise NotImplementedError('Cannot invoke BaseTask.run() method!')
