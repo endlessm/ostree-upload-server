@@ -22,4 +22,6 @@ if [ -d "$REPO_DIR" ]; then
   rm -rf "$REPO_DIR"
 fi
 
-$CURRENT_DIR/../bundle-import.py --debug "$REPO_DIR" "$BUNDLE_FILE"
+$CURRENT_DIR/../bundle-import.py --debug \
+    --gpg-homedir "$CURRENT_DIR/gpg/verifying" \
+    "$REPO_DIR" "$BUNDLE_FILE"
