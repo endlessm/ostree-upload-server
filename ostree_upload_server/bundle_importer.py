@@ -49,12 +49,15 @@ class BundleImporter(object):
         # Find the appropriate importer based on mimetype
         mime_type = magic.from_file(bundle, mime=True)
 
-        importer_class = filter(lambda ext: mime_type == ext.MIME_TYPE,
-                                BundleImporter.BUNDLE_IMPORTERS)[0]
-
+        importer_class = next(
+            filter(lambda ext: mime_type == ext.MIME_TYPE,
+                   BundleImporter.BUNDLE_IMPORTERS),
+            None)
         if not importer_class:
-            logging.error('ERROR! Unknown mime-type detected in %s', bundle)
-            raise RuntimeError('Unknown mime-type in file: {}'.format(bundle))
+            logging.error('ERROR! Unknown mime-type %s detected in %s',
+                          mime_type, bundle)
+            raise RuntimeError('Unknown mime-type {} in file {}'
+                               .format(mime_type, bundle))
 
         # Instantiate the importer and run it
         importer = importer_class(bundle, repository, gpg_homedir, keyring,
