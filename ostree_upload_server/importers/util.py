@@ -24,6 +24,13 @@ if not hasattr(OSTree, 'COMMIT_META_KEY_COLLECTION_BINDING'):
 if not hasattr(OSTree, 'COMMIT_META_KEY_REF_BINDING'):
     OSTree.COMMIT_META_KEY_REF_BINDING = 'ostree.ref-binding'
 
+# In OSTree 2019.2 RepoResolveRevExtFlags changed from an enum to a
+# bitfield in the GIR. Use the newer bitfield attribute and provide it
+# on older releases.
+if not hasattr(OSTree.RepoResolveRevExtFlags, 'NONE'):
+    OSTree.RepoResolveRevExtFlags.NONE = \
+        OSTree.RepoResolveRevExtFlags.REPO_RESOLVE_REV_EXT_NONE
+
 
 # FIXME: Remove this when P2P bindings are no longer experimental
 # and can then be expected in SOMA
@@ -72,7 +79,7 @@ def copy_commit(repo, src_rev, dest_ref):
     # commit's parent
     _, dest_parent = repo.resolve_rev_ext(
         dest_ref, allow_noent=True,
-        flags=OSTree.RepoResolveRevExtFlags.REPO_RESOLVE_REV_EXT_NONE)
+        flags=OSTree.RepoResolveRevExtFlags.NONE)
     if dest_parent is not None:
         logging.info('Using %s as new commit parent', dest_parent)
 
