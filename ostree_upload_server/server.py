@@ -239,9 +239,10 @@ class OstreeUploadServer(object):
                             HttpPushAdapter,
                             ScpPushAdapter]
 
-    def __init__(self, port, workers):
+    def __init__(self, port, workers, config_path=None):
         self._port = port
         self._workers = workers
+        self._config_path = config_path
 
         self._adapters = {}
         for adapter_impl_class in OstreeUploadServer.ADAPTER_IMPL_CLASSES:
@@ -256,7 +257,12 @@ class OstreeUploadServer(object):
 
     def parse_config(self):
         config = ConfigParser(allow_no_value=True)
-        config.read(OstreeUploadServer.CONFIG_LOCATIONS)
+        if self._config_path:
+            config_paths = [self._config_path]
+        else:
+            config_paths = OstreeUploadServer.CONFIG_LOCATIONS
+        logging.info('Loading configuration from %s', ' '.join(config_paths))
+        config.read(config_paths)
 
         for section in config.sections():
             if not section.startswith('remote-'):
@@ -440,6 +446,8 @@ def main():
     parser.add_argument("-p", "--port", type=int,
                         default=DEFAULT_LISTEN_PORT,
                         help="HTTP server listen port")
+    parser.add_argument("-c", "--config",
+                        help="path to ostree-upload-server.conf")
 
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Output informational messages")
@@ -455,7 +463,7 @@ def main():
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    OstreeUploadServer(args.port, args.workers).run()
+    OstreeUploadServer(args.port, args.workers, args.config).run()
 
 
 if __name__ == '__main__':
