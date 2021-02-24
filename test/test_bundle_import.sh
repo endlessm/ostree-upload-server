@@ -23,5 +23,7 @@ if [ -d "$REPO_DIR" ]; then
 fi
 
 $CURRENT_DIR/../bundle-import.py --debug \
-    --gpg-homedir "$CURRENT_DIR/gpg/verifying" \
+    --gpg-homedir "$CURRENT_DIR/gpg/server" \
+    --keyring "$CURRENT_DIR/gpg/upload-public.gpg" \
+    --sign-key server@example.com \
     "$REPO_DIR" "$BUNDLE_FILE"

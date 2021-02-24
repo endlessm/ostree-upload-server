@@ -1,8 +1,8 @@
 This is a revocation certificate for the OpenPGP key:
 
-pub   rsa2048 2018-03-16 [SCEA]
-      EF1EDABC42F683F14CC1E42FCE5650C306199B31
-uid          Test Flatpak Verification Key <verification@ostree.com>
+pub   rsa2048 2021-02-24 [SCEA]
+      EAEC9B60606A9D450D4B90365B6A1DE7198A9FE2
+uid          Flatpak Uploader <uploader@example.com>
 
 A revocation certificate is a kind of "kill switch" to publicly
 declare that a key shall not anymore be used.  It is not possible
@@ -21,12 +21,12 @@ before importing and publishing this revocation certificate.
 :-----BEGIN PGP PUBLIC KEY BLOCK-----
 Comment: This is a revocation certificate
 
-iQE2BCABCgAgFiEE7x7avEL2g/FMweQvzlZQwwYZmzEFAlqsGWICHQAACgkQzlZQ
-wwYZmzGuPQf/VAZ48kzO3ZXkczVCXcgHzx1yRwz8z13otQCLVgnNuTEW7NAnkv5S
-D1MsTequfsw28SOF+m9bmJPhpjYlScPrVozOrJwznN6ARueUb6LtQKVFTVVLVlUH
-9tx8UXWCXLzqBEwcKw0h+BAqYvlkfkWxUvhUXUqQ9vK8L+l1ZaS61Evsm5ZTh1zZ
-qo0ZJ3S5RjHwpVI/jzV9oC3Z3doON2CxGSWnIZu8uPpMsBAP1V3n/UeBmgrjBHTQ
-FtZyTOTS8DbGGoRJKwjtZUh8XK4MGaSc9kvcwBKKwSR36obQP7lW3fqvTc+MfzEO
-+ZzTLoUKIDaXVpHi9sOgkQcAghJV83dl3w==
-=eJZ9
+iQE2BCABCgAgFiEE6uybYGBqnUUNS5A2W2od5xmKn+IFAmA2g28CHQAACgkQW2od
+5xmKn+KZ/AgAjtPg49gArwKUmxmnLKGI8Bgtl0mSDxfNfQFjbKa7Ho6SYxMCJiQz
+vtp8jxXZrD4CewDNgOhvxq0AJIr/1MS9wn30rp/C6b9PTD1Ejsx2kt8O16WLRPwI
+hDUHQO6T1FmxrPe5KbqVwdO+tqHadvbVFIr9DWJwnpdrcsV1PDjz+BK4+YjxLfM/
+7gCRfZTpHfYHnNcSCm2FTWED4KK8oOzbi12ssyykZSHE4F2dnBfq0SwqJBH58xUA
+JPDgWQ4gie2tTr57yrqp91hgrXzrulhJC5wS6AuCKSF3OtaTH9Y/Znisj1QXJmdo
+NisZxVWDHgjChMlPhLsh+lZlDUPWuC/7Sg==
+=f3Q/
 -----END PGP PUBLIC KEY BLOCK-----
