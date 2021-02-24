@@ -245,11 +245,13 @@ class OstreeUploadServer(object):
         for adapter_impl_class in OstreeUploadServer.ADAPTER_IMPL_CLASSES:
             self._adapters[adapter_impl_class.name] = adapter_impl_class
 
+        self._remote_push_adapter_map = {}
         self._managed_repos = {}
+        self._users = {}
+        self._do_maintenance = True
+        self.parse_config()
 
     def parse_config(self):
-        remote_push_adapter_map = {}
-
         config = ConfigParser(allow_no_value=True)
         config.read(OstreeUploadServer.CONFIG_LOCATIONS)
 
@@ -263,9 +265,8 @@ class OstreeUploadServer(object):
                 logging.debug("Setting up adapter %s, type %s", remote_name,
                               adapter_type)
                 adapter_impl_class = self._adapters[adapter_type]
-                remote_push_adapter_map[remote_name] = adapter_impl_class(
-                    remote_name,
-                    remote_dict)
+                self._remote_push_adapter_map[remote_name] = \
+                    adapter_impl_class(remote_name, remote_dict)
             else:
                 logging.error("Adapter %s: unknown type %s", remote_name,
                               adapter_type)
@@ -287,23 +288,18 @@ class OstreeUploadServer(object):
         if not self._managed_repos:
             raise Exception('No repositories configured')
 
-        users = None
-
         if config.has_section('users'):
-            users = dict(config.items('users'))
+            self._users = dict(config.items('users'))
 
-        if users:
+        if self._users:
             logging.debug("Users configured:")
-            for user in sorted(users):
+            for user in sorted(self._users):
                 logging.debug(" - %s", user)
         else:
             logging.warning("Warning! No authentication configured!")
 
-        do_maintenance = True
         if config.has_section('server'):
-            do_maintenance = config.getboolean('server', 'maintenance')
-
-        return remote_push_adapter_map, users, do_maintenance
+            self._do_maintenance = config.getboolean('server', 'maintenance')
 
     def perform_maintenance(self, workers, task_queue,
                             latest_maintenance_complete, latest_task_complete):
@@ -374,13 +370,11 @@ class OstreeUploadServer(object):
                                              last_task_complete))
         workers.start(task_queue, self._workers)
 
-        remote_push_adapter_map, users, do_maintenance = self.parse_config()
-
         webapp = UploadWebApp(__name__,
-                              users,
+                              self._users,
                               self._managed_repos,
                               active_upload_counter,
-                              remote_push_adapter_map,
+                              self._remote_push_adapter_map,
                               task_queue)
 
         http_server = WSGIServer(('', self._port), webapp)
@@ -397,7 +391,7 @@ class OstreeUploadServer(object):
                               str(active_upload_counter.count))
 
                 # Continue looping if maintenance not desired
-                if do_maintenance:
+                if self._do_maintenance:
                     last_maintenance_complete = self.perform_maintenance(
                         workers, task_queue, last_maintenance_complete,
                         last_task_complete)
