@@ -7,7 +7,7 @@ class ScpPushAdapter(BasePushAdapter):
     name = "scp"
 
     def __init__(self, name, settings):
-        super(SCPPushAdapter, self).__init__(name)
+        super(ScpPushAdapter, self).__init__(name)
         self._url = settings.get('url')
 
     def push(self, bundle):
