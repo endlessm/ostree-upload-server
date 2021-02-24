@@ -145,8 +145,8 @@ class UploadWebApp(Flask):
                 repo_path = self._repos[repo_name]
 
                 if not os.path.exists(repo_path):
-                    logging.warn("Directory %s not present. Creating it...",
-                                 repo_path)
+                    logging.warning("Directory %s not present. Creating it...",
+                                    repo_path)
                     try:
                         os.makedirs(repo_path)
                     except OSError as err:
@@ -329,7 +329,7 @@ class OstreeUploadServer(object):
                     logging.info("Performing maintenance on %s", active_repo)
 
                     if not os.path.isdir(active_repo):
-                        logging.warn(
+                        logging.warning(
                             "Repo %s doesn't exist - skipping mainenance!",
                             active_repo)
                         continue

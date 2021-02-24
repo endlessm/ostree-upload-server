@@ -88,7 +88,7 @@ class TarImporter(BaseImporter):
             self._apply_commit_to_repo(commit, ref)
         finally:
             if path.isdir(dest_path):
-                logging.warn('Performing cleanup on %s...', dest_path)
+                logging.warning('Performing cleanup on %s...', dest_path)
                 rmtree(dest_path)
 
         logging.info('Import complete of \'%s\' into %s!', self._src_path,
