@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 # Generate an encrypted password for use in ostree-upload-server.conf
 # using PBKDF2-SHA256

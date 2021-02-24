@@ -56,4 +56,4 @@ RUN mkdir /repo && \
 
 USER ostree-server
 
-ENTRYPOINT ["/usr/bin/python2", "ostree-upload-server.py"]
+ENTRYPOINT ["/usr/bin/python3", "ostree-upload-server.py"]
