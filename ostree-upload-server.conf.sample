@@ -2,6 +2,17 @@
 # Perform maintenance tasks when idle
 maintenance = true
 
+# Settings for importing bundles
+[import]
+# location for gpg keyrings
+gpg_homedir = /gpg
+
+# trusted public keys for received flatpaks, empty for no signature check
+keyring = eos-flatpak-keyring.gpg
+
+# key id for signing received flatpaks, empty for no signing
+sign_key =
+
 # Leave empty if no authentication is needed
 # passwords are encrypted using PBKDF2-SHA256
 [users]

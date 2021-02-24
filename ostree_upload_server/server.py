@@ -44,12 +44,13 @@ global latest_task_complete
 
 class UploadWebApp(Flask):
     def __init__(self, import_name, users, repos, upload_counter,
-                 remote_push_adapter_map, task_queue):
+                 remote_push_adapter_map, import_config, task_queue):
         super(UploadWebApp, self).__init__(import_name)
         self._authenticator = Authenticator(users)
         self._repos = repos
         self._upload_counter = upload_counter
         self._remote_push_adapter_map = remote_push_adapter_map
+        self._import_config = import_config
         self._task_queue = task_queue
 
         self.route("/")(self.__class__.index)
@@ -157,7 +158,8 @@ class UploadWebApp(Flask):
                 os.close(file_ptr)
                 upload.save(real_name)
 
-                task = ReceiveTask(upload.filename, real_name, repo_path)
+                task = ReceiveTask(upload.filename, real_name, repo_path,
+                                   self._import_config)
                 self._task_queue.add_task(task)
 
                 logging.debug("/upload: POST request completed for %s",
@@ -248,6 +250,7 @@ class OstreeUploadServer(object):
         self._remote_push_adapter_map = {}
         self._managed_repos = {}
         self._users = {}
+        self._import_config = {}
         self._do_maintenance = True
         self.parse_config()
 
@@ -297,6 +300,16 @@ class OstreeUploadServer(object):
                 logging.debug(" - %s", user)
         else:
             logging.warning("Warning! No authentication configured!")
+
+        if config.has_section('import'):
+            self._import_config = dict(config.items('import'))
+
+        if self._import_config:
+            logging.debug('Import configuration:')
+            for key, value in sorted(self._import_config.items()):
+                logging.debug('%s = %s', key, value)
+        else:
+            logging.warning('No import configuration!')
 
         if config.has_section('server'):
             self._do_maintenance = config.getboolean('server', 'maintenance')
@@ -375,6 +388,7 @@ class OstreeUploadServer(object):
                               self._managed_repos,
                               active_upload_counter,
                               self._remote_push_adapter_map,
+                              self._import_config,
                               task_queue)
 
         http_server = WSGIServer(('', self._port), webapp)

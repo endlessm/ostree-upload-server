@@ -8,11 +8,12 @@ from ostree_upload_server.task.state import TaskState
 
 
 class ReceiveTask(BaseTask):
-    def __init__(self, taskname, upload, repo):
+    def __init__(self, taskname, upload, repo, import_config):
         super(ReceiveTask, self).__init__(taskname)
 
         self._upload = upload
         self._repo = repo
+        self._import_config = import_config
 
     def run(self):
         logging.info("Processing task %s", self.get_name())
@@ -23,7 +24,8 @@ class ReceiveTask(BaseTask):
             try:
                 logging.info("Trying to import %s into %s", self._upload,
                              self._repo)
-                BundleImporter.import_bundle(self._upload, self._repo)
+                BundleImporter.import_bundle(self._upload, self._repo,
+                                             **self._import_config)
                 self.set_state(TaskState.COMPLETED)
 
                 logging.info("Completed task %s", self.get_name())
