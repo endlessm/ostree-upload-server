@@ -43,7 +43,7 @@ class BundleImporter(object):
         sign_key = sign_key or defaults.get('sign_key', None)
 
         logging.info("Starting the bundle import process...")
-        for arg in inspect.getargspec(BundleImporter.import_bundle)[0]:
+        for arg in inspect.getfullargspec(BundleImporter.import_bundle)[0]:
             logging.info("Set %s = '%s'", arg, locals()[arg])
 
         # Find the appropriate importer based on mimetype
