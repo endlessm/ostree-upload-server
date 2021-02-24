@@ -8,7 +8,7 @@ import os
 import shutil
 import tempfile
 
-from configparser import SafeConfigParser
+from configparser import ConfigParser
 from functools import partial
 from time import time
 
@@ -250,7 +250,7 @@ class OstreeUploadServer(object):
     def parse_config(self):
         remote_push_adapter_map = {}
 
-        config = SafeConfigParser(allow_no_value=True)
+        config = ConfigParser(allow_no_value=True)
         config.read(OstreeUploadServer.CONFIG_LOCATIONS)
 
         for section in config.sections():
