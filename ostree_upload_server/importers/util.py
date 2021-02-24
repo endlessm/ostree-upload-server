@@ -238,4 +238,4 @@ def get_metadata_contents(repo, rev):
     metadata_stream = metadata_file.read()
     metadata_bytes = metadata_stream.read_bytes(metadata_size)
 
-    return metadata_bytes.get_data()
+    return metadata_bytes.get_data().decode('utf-8')
