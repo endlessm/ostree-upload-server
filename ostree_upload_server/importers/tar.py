@@ -13,6 +13,7 @@ from shutil import rmtree
 from .base import BaseImporter
 from .util import find_repo, open_repository
 
+
 class TarImporter(BaseImporter):
     MIME_TYPE = 'application/x-tar'
 
@@ -24,10 +25,12 @@ class TarImporter(BaseImporter):
 
     def _import_commit(self, commit, src_path_obj, target_repo):
         if not self._source_repo_path:
-            raise RuntimeError("Cannot invoke _import_commit without calling import_to_repo first")
+            raise RuntimeError("Cannot invoke _import_commit without calling "
+                               "import_to_repo first")
 
         if not commit:
-            raise RuntimeError("Cannot invoke _import_commit without valid commit")
+            raise RuntimeError("Cannot invoke _import_commit without valid "
+                               "commit")
 
         logging.debug("Importing %s@%s into %s...", self._source_repo_path,
                       commit,
@@ -38,7 +41,8 @@ class TarImporter(BaseImporter):
             'inherit-transaction': GLib.Variant('b', True),
         })
 
-        source_repo_uri = urlparse.urljoin('file:', urllib.pathname2url(self._source_repo_path))
+        source_repo_uri = urlparse.urljoin(
+            'file:', urllib.pathname2url(self._source_repo_path))
         target_repo.pull_with_options(source_repo_uri,
                                       options,
                                       None, None)
@@ -54,7 +58,8 @@ class TarImporter(BaseImporter):
         dest_path = tempfile.mkdtemp('', prefix=self.__class__.__name__,
                                      dir=self.__class__.TEMP_DIR_PREFIX)
         try:
-            logging.info('Extracting \'%s\' to a temp dir in %s...', self._src_path, dest_path)
+            logging.info('Extracting \'%s\' to a temp dir in %s...',
+                         self._src_path, dest_path)
             with tarfile.open(self._src_path) as tar_archive:
                 tar_archive.extractall(path=dest_path)
 
@@ -68,10 +73,11 @@ class TarImporter(BaseImporter):
                 logging.error("Could not find any refs in the source repo!")
                 raise RuntimeError("Missing refs in Tar ostree repository!")
 
-            # We only process the first ref in the repo provided - all other variations
-            # are currently unsupported.
+            # We only process the first ref in the repo provided - all
+            # other variations are currently unsupported.
             if len(refs) > 1:
-                error_msg = "Multiple refs ({}) found in Tar archive!".format(refs)
+                error_msg = ("Multiple refs ({}) found in Tar archive!"
+                             .format(refs))
                 logging.error(error_msg)
                 raise RuntimeError(error_msg)
 
@@ -87,7 +93,9 @@ class TarImporter(BaseImporter):
                 logging.warn('Performing cleanup on %s...', dest_path)
                 rmtree(dest_path)
 
-        logging.info('Import complete of \'%s\' into %s!', self._src_path, self._repo_path)
+        logging.info('Import complete of \'%s\' into %s!', self._src_path,
+                     self._repo_path)
+
 
 # This works with the same code so we just override the mimetype
 class TgzImporter(TarImporter):

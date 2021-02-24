@@ -46,4 +46,5 @@ class WorkerPoolExecutor:
             except queue.Empty:
                 pass
 
-        logging.info("Worker shutdown, {} items processed".format(processed_count))
+        logging.info("Worker shutdown, {} items processed"
+                     .format(processed_count))

@@ -5,9 +5,9 @@ import subprocess
 
 import gi
 gi.require_version('OSTree', '1.0')
-from gi.repository import GLib, Gio, OSTree
-# Indices into the commit gvariant tuple
+from gi.repository import GLib, Gio, OSTree  # noqa: E402
 
+# Indices into the commit gvariant tuple
 COMMIT_SUBJECT_INDEX = 3
 COMMIT_BODY_INDEX = 4
 COMMIT_TREE_CONTENT_CHECKSUM_INDEX = 6
@@ -46,6 +46,7 @@ def get_collection_id(repo):
             raise
 
     return collection_id
+
 
 def copy_commit(repo, src_rev, dest_ref):
     """Copy commit src_rev to dest_ref
@@ -135,6 +136,7 @@ def copy_commit(repo, src_rev, dest_ref):
 
     return dest_checksum
 
+
 def open_repository(repo_path):
     # Open repository
     repo_file = Gio.File.new_for_path(repo_path)
@@ -153,6 +155,7 @@ def open_repository(repo_path):
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
     return repo
+
 
 def verify_commit_sig(repo, commit, gpg_homedir, keyring):
     # Verify gpg signature
@@ -175,6 +178,7 @@ def verify_commit_sig(repo, commit, gpg_homedir, keyring):
     else:
         raise Exception("Bundle does not have valid signature!")
 
+
 # Update the repo metadata (summary, appstream, etc), but no
 # pruning or delta generation to make it fast
 def update_repo_metadata(repository_path, gpg_homedir, sign_key):
@@ -189,6 +193,7 @@ def update_repo_metadata(repository_path, gpg_homedir, sign_key):
     logging.debug('Executing %s', ' '.join(cmd))
 
     subprocess.check_call(cmd)
+
 
 def find_repo(start_path):
     refs_suffix = os.path.join('refs', 'heads')
@@ -206,6 +211,7 @@ def find_repo(start_path):
         return os.path.join(start_path, first_level_path)
 
     raise RuntimeError("Repo did not have the expected layout!")
+
 
 def get_metadata_contents(repo, rev):
     """Read the contents of the commit's metadata file"""

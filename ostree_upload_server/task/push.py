@@ -28,7 +28,8 @@ class PushTask(BaseTask):
             self.set_state(TaskState.FAILED)
             return
         if not self._adapter.push(bundle):
-            logging.error("Failed to push {0} to {1}".format(bundle, self._adapter))
+            logging.error("Failed to push {0} to {1}".format(bundle,
+                                                             self._adapter))
             self.set_state(TaskState.FAILED)
             return
 
@@ -36,7 +37,7 @@ class PushTask(BaseTask):
 
         self.set_state(TaskState.COMPLETED)
 
-        logging.info("Completed task ".format(self.get_name()))
+        logging.info("Completed task %s", self.get_name())
 
     def _rebuild_bundle(self):
         (f, filename) = tempfile.mkstemp(dir=self._tempdir)
@@ -51,7 +52,8 @@ class PushTask(BaseTask):
                                        filename,
                                        self._ref],
                                       stderr=STDOUT)
-                logging.info("Extracted {0} as {1}".format(self._ref, filename))
+                logging.info("Extracted {0} as {1}".format(self._ref,
+                                                           filename))
                 return filename
             except CalledProcessError as e:
                 logging.info("Failed extraction {}".format(self.get_name()))

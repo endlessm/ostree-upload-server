@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractmethod
 
+
 class BasePushAdapter():
     __metaclass__ = ABCMeta
 

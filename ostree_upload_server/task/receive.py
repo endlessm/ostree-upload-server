@@ -1,16 +1,10 @@
 import logging
 import os
 
-from gevent.subprocess import check_output, CalledProcessError, STDOUT
-
 from ostree_upload_server.bundle_importer import BundleImporter
 from ostree_upload_server.repolock import RepoLock
 from ostree_upload_server.task.base import BaseTask
 from ostree_upload_server.task.state import TaskState
-
-import gi
-gi.require_version('OSTree', '1.0')
-from gi.repository import GLib
 
 
 class ReceiveTask(BaseTask):
@@ -27,7 +21,8 @@ class ReceiveTask(BaseTask):
 
         with RepoLock(self._repo):
             try:
-                logging.info("Trying to import %s into %s", self._upload, self._repo)
+                logging.info("Trying to import %s into %s", self._upload,
+                             self._repo)
                 BundleImporter.import_bundle(self._upload, self._repo)
                 self.set_state(TaskState.COMPLETED)
 

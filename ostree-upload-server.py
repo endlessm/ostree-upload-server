@@ -12,9 +12,7 @@ from ConfigParser import SafeConfigParser
 from functools import partial
 from time import time
 
-from gevent import Greenlet
 from gevent import sleep as gsleep
-from gevent.event import Event
 from gevent.pywsgi import WSGIServer
 from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
@@ -60,7 +58,8 @@ class UploadWebApp(Flask):
 
         # These files might be huge and /tmp might be mounted on tmpfs
         # so to avoid RAM exhaustion, we use /var/tmp
-        self._tempdir = tempfile.mkdtemp(dir="/var/tmp", prefix="ostree-upload-server-")
+        self._tempdir = tempfile.mkdtemp(dir="/var/tmp",
+                                         prefix="ostree-upload-server-")
         atexit.register(shutil.rmtree, self._tempdir)
 
     @staticmethod
@@ -90,7 +89,8 @@ class UploadWebApp(Flask):
         task = self._task_queue.get_task(task_id)
 
         if task is None:
-            return self.build_response(404, "Task {} does not exist".format(task_id))
+            return self.build_response(
+                404, "Task {} does not exist".format(task_id))
 
         if not isinstance(task, allowed_task):
             err_message = "Task {} is not a {} task".format(task_id,
@@ -134,16 +134,19 @@ class UploadWebApp(Flask):
                 logging.info("Target repo: %s", repo_name)
 
                 if not repo_name:
-                    return cls.build_generic_error("ERROR! 'repo' parameter not set!")
+                    return cls.build_generic_error(
+                        "ERROR! 'repo' parameter not set!")
 
                 if repo_name not in self._repos.keys():
-                    error_msg = "ERROR! Target repo '{}' is invalid!".format(repo_name)
+                    error_msg = ("ERROR! Target repo '{}' is invalid!"
+                                 .format(repo_name))
                     return cls.build_generic_error(error_msg)
 
                 repo_path = self._repos[repo_name]
 
                 if not os.path.exists(repo_path):
-                    logging.warn("Directory %s not present. Creating it...", repo_path)
+                    logging.warn("Directory %s not present. Creating it...",
+                                 repo_path)
                     try:
                         os.makedirs(repo_path)
                     except OSError as err:
@@ -157,7 +160,8 @@ class UploadWebApp(Flask):
                 task = ReceiveTask(upload.filename, real_name, repo_path)
                 self._task_queue.add_task(task)
 
-                logging.debug("/upload: POST request completed for %s", upload.filename)
+                logging.debug("/upload: POST request completed for %s",
+                              upload.filename)
 
                 return cls.build_response(200, "Importing bundle",
                                           task=task.get_id())
@@ -165,7 +169,8 @@ class UploadWebApp(Flask):
             logging.debug("/upload: GET request %s", request.full_path)
             return self._get_request_task(ReceiveTask)
         else:
-            return cls.build_generic_error("Only GET and POST methods supported")
+            return cls.build_generic_error(
+                "Only GET and POST methods supported")
 
     def push(self):
         """
@@ -183,24 +188,28 @@ class UploadWebApp(Flask):
                 ref = request.args['ref']
                 remote = request.args['remote']
             except KeyError:
-                return cls.build_generic_error("ref and remote arguments required")
+                return cls.build_generic_error(
+                    "ref and remote arguments required")
 
             logging.debug("/push: %s to %s", ref, remote)
-            if not remote in self._remote_push_adapter_map:
-                return cls.build_generic_error("Remote is not in the whitelist")
+            if remote not in self._remote_push_adapter_map:
+                return cls.build_generic_error(
+                    "Remote is not in the whitelist")
 
             adapter = self._remote_push_adapter_map[remote]
             task = PushTask(ref, self._repo, ref, adapter, self._tempdir)
             self._task_queue.add_task(task)
 
-            return cls.build_response(200, "Pushing {0} to {1}".format(ref, remote),
+            return cls.build_response(200,
+                                      "Pushing {0} to {1}".format(ref, remote),
                                       task=task.get_id())
 
         elif request.method == "GET":
             logging.debug("/push: GET request %s", request.full_path)
             return self._get_request_task(PushTask)
         else:
-            return cls.build_generic_error("Only GET and PUT methods supported")
+            return cls.build_generic_error(
+                "Only GET and PUT methods supported")
 
     @staticmethod
     def build_generic_error(message):
@@ -218,9 +227,11 @@ class UploadWebApp(Flask):
 
 
 class OstreeUploadServer(object):
-    CONFIG_LOCATIONS = ['/etc/ostree/ostree-upload-server.conf',
-                        os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
-                        'ostree-upload-server.conf']
+    CONFIG_LOCATIONS = [
+        '/etc/ostree/ostree-upload-server.conf',
+        os.path.expanduser('~/.config/ostree/ostree-upload-server.conf'),
+        'ostree-upload-server.conf',
+    ]
 
     ADAPTER_IMPL_CLASSES = [DummyPushAdapter,
                             HttpPushAdapter,
@@ -249,12 +260,15 @@ class OstreeUploadServer(object):
             remote_name = section.split('-')[1]
             adapter_type = remote_dict['type']
             if adapter_type in self._adapters.keys():
-                logging.debug("Setting up adapter %s, type %s", remote_name, adapter_type)
+                logging.debug("Setting up adapter %s, type %s", remote_name,
+                              adapter_type)
                 adapter_impl_class = self._adapters[adapter_type]
-                remote_push_adapter_map[remote_name] = adapter_impl_class(remote_name,
-                                                                          remote_dict)
+                remote_push_adapter_map[remote_name] = adapter_impl_class(
+                    remote_name,
+                    remote_dict)
             else:
-                logging.error("Adapter %s: unknown type %s", remote_name, adapter_type)
+                logging.error("Adapter %s: unknown type %s", remote_name,
+                              adapter_type)
 
         # Enumerate all the allowed repos
         for section in config.sections():
@@ -267,7 +281,8 @@ class OstreeUploadServer(object):
 
             self._managed_repos[repo_name] = repo_path
 
-            logging.info("Repo %s -> %s configuration added", repo_name, repo_path)
+            logging.info("Repo %s -> %s configuration added", repo_name,
+                         repo_path)
 
         if not self._managed_repos:
             raise Exception('No repositories configured')
@@ -290,13 +305,14 @@ class OstreeUploadServer(object):
 
         return remote_push_adapter_map, users, do_maintenance
 
-    def perform_maintenance(self, workers, task_queue, latest_maintenance_complete,
-                            latest_task_complete):
+    def perform_maintenance(self, workers, task_queue,
+                            latest_maintenance_complete, latest_task_complete):
         time_since_maintenance = time() - latest_maintenance_complete
         time_since_task = time() - latest_task_complete[0]
         logging.debug("{:.1f} complete".format(time_since_task))
 
-        maintenance_msg_format = "{:.1f} since last task, {:.1f}/{} since last maintenance"
+        maintenance_msg_format = ("{:.1f} since last task, {:.1f}/{} since "
+                                  "last maintenance")
         logging.debug(maintenance_msg_format.format(time_since_task,
                                                     time_since_maintenance,
                                                     MAINTENANCE_WAIT))
@@ -313,8 +329,9 @@ class OstreeUploadServer(object):
                     logging.info("Performing maintenance on %s", active_repo)
 
                     if not os.path.isdir(active_repo):
-                        logging.warn("Repo %s doesn't exist - skipping mainenance!",
-                                     active_repo)
+                        logging.warn(
+                            "Repo %s doesn't exist - skipping mainenance!",
+                            active_repo)
                         continue
 
                     with RepoLock(active_repo, exclusive=True):
@@ -353,7 +370,8 @@ class OstreeUploadServer(object):
             logging.debug("Task completed callback %s", last_task_complete)
             last_task_complete[:] = [time()]
 
-        workers = WorkerPoolExecutor(partial(completed_callback, last_task_complete))
+        workers = WorkerPoolExecutor(partial(completed_callback,
+                                             last_task_complete))
         workers.start(task_queue, self._workers)
 
         remote_push_adapter_map, users, do_maintenance = self.parse_config()
@@ -380,10 +398,9 @@ class OstreeUploadServer(object):
 
                 # Continue looping if maintenance not desired
                 if do_maintenance:
-                    last_maintenance_complete = self.perform_maintenance(workers,
-                                                                         task_queue,
-                                                                         last_maintenance_complete,
-                                                                         last_task_complete)
+                    last_maintenance_complete = self.perform_maintenance(
+                        workers, task_queue, last_maintenance_complete,
+                        last_task_complete)
             except (KeyboardInterrupt, SystemExit):
                 break
 
