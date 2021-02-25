@@ -8,7 +8,6 @@ from urllib.request import pathname2url
 from gi.repository import GLib
 
 from os import makedirs, path, sep as path_separator
-from shutil import rmtree
 
 from .base import BaseImporter
 from .util import find_repo, open_repository
@@ -55,9 +54,9 @@ class TarImporter(BaseImporter):
         if not path.isdir(self.__class__.TEMP_DIR_PREFIX):
             makedirs(self.__class__.TEMP_DIR_PREFIX, 0o0755)
 
-        dest_path = tempfile.mkdtemp('', prefix=self.__class__.__name__,
-                                     dir=self.__class__.TEMP_DIR_PREFIX)
-        try:
+        with tempfile.TemporaryDirectory(
+                prefix=self.__class__.__name__,
+                dir=self.__class__.TEMP_DIR_PREFIX) as dest_path:
             logging.info('Extracting \'%s\' to a temp dir in %s...',
                          self._src_path, dest_path)
             with tarfile.open(self._src_path) as tar_archive:
@@ -86,10 +85,6 @@ class TarImporter(BaseImporter):
             logging.info("Commit: %s", commit)
 
             self._apply_commit_to_repo(commit, ref)
-        finally:
-            if path.isdir(dest_path):
-                logging.warning('Performing cleanup on %s...', dest_path)
-                rmtree(dest_path)
 
         logging.info('Import complete of \'%s\' into %s!', self._src_path,
                      self._repo_path)
