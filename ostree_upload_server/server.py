@@ -10,7 +10,6 @@ import signal
 import tempfile
 
 from configparser import ConfigParser
-from functools import partial
 from time import time
 
 from gevent import signal as gsignal
@@ -241,9 +240,9 @@ class OstreeUploadServer(object):
                             HttpPushAdapter,
                             ScpPushAdapter]
 
-    def __init__(self, port, workers, config_path=None):
+    def __init__(self, port, num_workers, config_path=None):
         self._port = port
-        self._workers = workers
+        self._num_workers = num_workers
         self._config_path = config_path
 
         self._adapters = {}
@@ -256,6 +255,20 @@ class OstreeUploadServer(object):
         self._import_config = {}
         self._do_maintenance = True
         self.parse_config()
+
+        self._last_task_complete = time()
+        self._last_maintenance_complete = time()
+        self._active_upload_counter = ThreadsafeCounter()
+        self._task_queue = TaskQueue()
+        self._workers = WorkerPoolExecutor(self._task_completed_callback)
+        webapp = UploadWebApp(__name__,
+                              self._users,
+                              self._managed_repos,
+                              self._active_upload_counter,
+                              self._remote_push_adapter_map,
+                              self._import_config,
+                              self._task_queue)
+        self._http_server = WSGIServer(('', self._port), webapp)
 
     def parse_config(self):
         config = ConfigParser(allow_no_value=True)
@@ -322,10 +335,9 @@ class OstreeUploadServer(object):
         if config.has_section('server'):
             self._do_maintenance = config.getboolean('server', 'maintenance')
 
-    def perform_maintenance(self, workers, task_queue,
-                            latest_maintenance_complete, latest_task_complete):
-        time_since_maintenance = time() - latest_maintenance_complete
-        time_since_task = time() - latest_task_complete[0]
+    def perform_maintenance(self):
+        time_since_maintenance = time() - self._last_maintenance_complete
+        time_since_task = time() - self._last_task_complete
         logging.debug("{:.1f} complete".format(time_since_task))
 
         maintenance_msg_format = ("{:.1f} since last task, {:.1f}/{} since "
@@ -338,7 +350,7 @@ class OstreeUploadServer(object):
             logging.debug("Maintenance needed")
             if time_since_task >= MAINTENANCE_WAIT:
                 logging.debug("Idle. Performing maintenance")
-                workers.stop()
+                self._workers.stop()
 
                 repo_paths = list(self._managed_repos.values())
                 logging.info("Performing maintenance on repos: %s", repo_paths)
@@ -377,11 +389,13 @@ class OstreeUploadServer(object):
                                 "Maintenance task failed on %s with code %d",
                                 active_repo, ret)
 
-                workers.start(task_queue, self._workers)
+                self._workers.start(self._task_queue, self._num_workers)
 
-                latest_maintenance_complete = time()
+                self._last_maintenance_complete = time()
 
-        return latest_maintenance_complete
+    def _task_completed_callback(self):
+        logging.debug("Task completed callback %s", self._last_task_complete)
+        self._last_task_complete = time()
 
     @staticmethod
     def _sighandler(signum, frame):
@@ -389,64 +403,41 @@ class OstreeUploadServer(object):
         logging.error('Received signal %s', signame)
         raise SystemExit(1)
 
-    def run(self):
-        # Array since we need to pass by ref
-        last_task_complete = [time()]
-        last_maintenance_complete = time()
-        active_upload_counter = ThreadsafeCounter()
-
-        task_queue = TaskQueue()
-
+    def _start(self):
         logging.info("Starting server on %d...", self._port)
 
-        logging.debug("Task completed callback %s", last_task_complete)
+        self._workers.start(self._task_queue, self._num_workers)
+        self._http_server.start()
 
-        def completed_callback(last_task_complete):
-            logging.debug("Task completed callback %s", last_task_complete)
-            last_task_complete[:] = [time()]
+        logging.info("Server started on %s", self._http_server.server_port)
 
-        workers = WorkerPoolExecutor(partial(completed_callback,
-                                             last_task_complete))
+    def _stop(self):
+        logging.info("Cleaning up resources...")
 
-        webapp = UploadWebApp(__name__,
-                              self._users,
-                              self._managed_repos,
-                              active_upload_counter,
-                              self._remote_push_adapter_map,
-                              self._import_config,
-                              task_queue)
-        http_server = WSGIServer(('', self._port), webapp)
+        self._http_server.stop()
+        self._workers.stop()
 
+    def run(self):
         try:
             gsignal.signal(signal.SIGTERM, self._sighandler)
             gsignal.signal(signal.SIGHUP, self._sighandler)
 
-            logging.info("Starting server on %d...", self._port)
-
-            workers.start(task_queue, self._workers)
-            http_server.start()
-
-            logging.info("Server started on %s", self._port)
+            self._start()
 
             # loop until interrupted
             while True:
                 gsleep(5)
-                task_queue.join()
+                self._task_queue.join()
                 logging.debug("Task queue empty, %s uploads ongoing",
-                              str(active_upload_counter.count))
+                              str(self._active_upload_counter.count))
 
                 # Continue looping if maintenance not desired
                 if self._do_maintenance:
-                    last_maintenance_complete = self.perform_maintenance(
-                        workers, task_queue, last_maintenance_complete,
-                        last_task_complete)
+                    self.perform_maintenance()
         except KeyboardInterrupt:
             logging.info("Exiting")
         finally:
-            logging.info("Cleaning up resources...")
-
-            http_server.stop()
-            workers.stop()
+            self._stop()
 
 
 def main():
