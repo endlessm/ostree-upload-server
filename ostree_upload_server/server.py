@@ -6,12 +6,14 @@ import errno
 import logging
 import os
 import shutil
+import signal
 import tempfile
 
 from configparser import ConfigParser
 from functools import partial
 from time import time
 
+from gevent import signal as gsignal
 from gevent import sleep as gsleep
 from gevent import subprocess
 from gevent.pywsgi import WSGIServer
@@ -381,6 +383,12 @@ class OstreeUploadServer(object):
 
         return latest_maintenance_complete
 
+    @staticmethod
+    def _sighandler(signum, frame):
+        signame = signal.Signals(signum).name
+        logging.error('Received signal %s', signame)
+        raise SystemExit(1)
+
     def run(self):
         # Array since we need to pass by ref
         last_task_complete = [time()]
@@ -399,7 +407,6 @@ class OstreeUploadServer(object):
 
         workers = WorkerPoolExecutor(partial(completed_callback,
                                              last_task_complete))
-        workers.start(task_queue, self._workers)
 
         webapp = UploadWebApp(__name__,
                               self._users,
@@ -408,15 +415,21 @@ class OstreeUploadServer(object):
                               self._remote_push_adapter_map,
                               self._import_config,
                               task_queue)
-
         http_server = WSGIServer(('', self._port), webapp)
-        http_server.start()
 
-        logging.info("Server started on %s", self._port)
+        try:
+            gsignal.signal(signal.SIGTERM, self._sighandler)
+            gsignal.signal(signal.SIGHUP, self._sighandler)
 
-        # loop until interrupted
-        while True:
-            try:
+            logging.info("Starting server on %d...", self._port)
+
+            workers.start(task_queue, self._workers)
+            http_server.start()
+
+            logging.info("Server started on %s", self._port)
+
+            # loop until interrupted
+            while True:
                 gsleep(5)
                 task_queue.join()
                 logging.debug("Task queue empty, %s uploads ongoing",
@@ -427,14 +440,13 @@ class OstreeUploadServer(object):
                     last_maintenance_complete = self.perform_maintenance(
                         workers, task_queue, last_maintenance_complete,
                         last_task_complete)
-            except (KeyboardInterrupt, SystemExit):
-                break
+        except KeyboardInterrupt:
+            logging.info("Exiting")
+        finally:
+            logging.info("Cleaning up resources...")
 
-        logging.info("Cleaning up resources...")
-
-        http_server.stop()
-
-        workers.stop()
+            http_server.stop()
+            workers.stop()
 
 
 def main():
