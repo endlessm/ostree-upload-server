@@ -1,0 +1,10 @@
+# We need the gevent test extra since grequests uses gevent.monkey, so
+# it needs to be specified before the gevent in the main requirements
+# file. However, that pulls in the latest idna, which is incompatible
+# with requests, so specify requests first.
+requests
+gevent[test]
+-r requirements.txt
+flake8
+grequests
+pytest
