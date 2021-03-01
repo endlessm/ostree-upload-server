@@ -343,14 +343,24 @@ class OstreeUploadServer(object):
                             active_repo)
                         continue
 
+                    # Run flatpak build-update-repo
+                    cmd = [
+                        "flatpak",
+                        "build-update-repo",
+                        "--generate-static-deltas",
+                        "--prune",
+                    ]
+                    gpg_homedir = self._import_config.get('gpg_homedir')
+                    sign_key = self._import_config.get('sign_key')
+                    if gpg_homedir:
+                        cmd.append('--gpg-homedir=' + gpg_homedir)
+                    if sign_key:
+                        cmd.append('--gpg-sign=' + sign_key)
+                    cmd.append(active_repo)
+
                     with RepoLock(active_repo, exclusive=True):
                         try:
-                            output = check_output(["flatpak",
-                                                   "build-update-repo",
-                                                   "--generate-static-deltas",
-                                                   "--prune",
-                                                   active_repo],
-                                                  stderr=STDOUT)
+                            output = check_output(cmd, stderr=STDOUT)
                             logging.info("Completed maintenance on %s: %s",
                                          active_repo, output)
                         except CalledProcessError as err:
