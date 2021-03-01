@@ -13,8 +13,8 @@ from functools import partial
 from time import time
 
 from gevent import sleep as gsleep
+from gevent import subprocess
 from gevent.pywsgi import WSGIServer
-from gevent.subprocess import check_output, CalledProcessError, STDOUT
 
 from flask import Flask, json, jsonify, request, Response, url_for
 from flask_api import status
@@ -359,13 +359,15 @@ class OstreeUploadServer(object):
                     cmd.append(active_repo)
 
                     with RepoLock(active_repo, exclusive=True):
-                        try:
-                            output = check_output(cmd, stderr=STDOUT)
-                            logging.info("Completed maintenance on %s: %s",
-                                         active_repo, output)
-                        except CalledProcessError as err:
-                            logging.error("ERROR! Maintenance task failed!")
-                            logging.error(err)
+                        logging.debug('Executing %s', ' '.join(cmd))
+                        ret = subprocess.call(cmd)
+                        if ret == 0:
+                            logging.info("Completed maintenance on %s",
+                                         active_repo)
+                        else:
+                            logging.error(
+                                "Maintenance task failed on %s with code %d",
+                                active_repo, ret)
 
                 workers.start(task_queue, self._workers)
 
