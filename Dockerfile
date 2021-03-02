@@ -1,47 +1,27 @@
 FROM ubuntu:18.04
 MAINTAINER Endless Services Team <services@endlessm.com>
-
-RUN apt-get update && \
-    apt-get install -y software-properties-common
-
 LABEL version="0.1"
 
-RUN add-apt-repository ppa:alexlarsson/flatpak
-
 RUN apt-get update && \
-    apt-get dist-upgrade -y && \
-    apt-get install -y apt-transport-https \
-                       curl \
-                       flatpak \
-                       ostree
-
-
-# Keep in line with requirements.txt and setup.py
-RUN apt-get update && apt-get install -y gir1.2-ostree-1.0 \
-                                         python \
-                                         python-appdirs \
-                                         python-click \
-                                         python-flask \
-                                         python-flask-api \
-                                         python-gevent \
-                                         python-gi \
-                                         python-greenlet \
-                                         python-itsdangerous \
-                                         python-jinja2 \
-                                         python-magic \
-                                         python-markupsafe \
-                                         python-packaging \
-                                         python-passlib \
-                                         python-requests-toolbelt \
-                                         python-six \
-                                         python-werkzeug
-
-EXPOSE 5000
+    apt-get install -y \
+        gir1.2-ostree-1.0 \
+        flatpak \
+        ostree \
+        python3 \
+        python3-gi \
+        python3-pip \
+        && \
+    apt-get clean
 
 ENV INSTALL_DIR="/opt/ostree-upload-server"
 
 RUN mkdir -p $INSTALL_DIR
 WORKDIR $INSTALL_DIR
+COPY requirements.txt $INSTALL_DIR
+
+RUN pip3 install --no-cache-dir -r $INSTALL_DIR/requirements.txt
+
+EXPOSE 5000
 
 # XXX: Use static/unique UID/GID to ensure consistency in mounted volume handling
 RUN groupadd -r -g 800 ostree-server && \
@@ -56,4 +36,4 @@ RUN mkdir /repo && \
 
 USER ostree-server
 
-ENTRYPOINT ["/usr/bin/python2", "ostree-upload-server.py"]
+ENTRYPOINT ["/usr/bin/python3", "ostree-upload-server.py"]

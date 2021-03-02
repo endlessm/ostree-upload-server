@@ -1,12 +1,12 @@
 import logging
 
 import gi
-gi.require_version('OSTree', '1.0')
-from gi.repository import GLib, OSTree
 
 from .base import BaseImporter
 from .util import get_metadata_contents
 
+gi.require_version('OSTree', '1.0')
+from gi.repository import GLib, OSTree  # noqa: E402
 
 OSTREE_COMMIT_GVARIANT_STRING = "(a{sv}aya(say)sstayay)"
 
@@ -35,31 +35,33 @@ class FlatpakImporter(BaseImporter):
         # Apply the delta to the target repo
         target_repo.static_delta_execute_offline(src_path_obj, False, None)
 
-        # Compare installed and header metadata, remove commit if mismatch (abort transaction)
+        # Compare installed and header metadata, remove commit if
+        # mismatch (abort transaction)
         metadata_contents = get_metadata_contents(target_repo, commit)
         if metadata_contents != self._metadata['metadata']:
-            raise Exception("Committed metadata does not match the static delta header")
+            raise Exception("Committed metadata does not match the static "
+                            "delta header")
 
         logging.debug("Committed metadata matches the static delta header")
 
     def import_to_repo(self):
         logging.info("Trying to use %s extractor...", self.__class__.__name__)
 
-        ### Mmap the flatpak file and create a GLib.Variant from it
+        # Mmap the flatpak file and create a GLib.Variant from it
         mapped_file = GLib.MappedFile.new(self._src_path, False)
         delta = GLib.Variant.new_from_bytes(
             GLib.VariantType(OSTREE_STATIC_DELTA_SUPERBLOCK_FORMAT),
             mapped_file.get_bytes(),
             False)
 
-        ### Parse flatpak metadata
+        # Parse flatpak metadata
         # Use get_child_value instead of array index to avoid
         # slowdown (constructing the whole array?)
         checksum_variant = delta.get_child_value(3)
         OSTree.validate_structureof_csum_v(checksum_variant)
 
         metadata_variant = delta.get_child_value(0)
-        logging.debug("Metadata keys: %s", metadata_variant.keys())
+        logging.debug("Metadata keys: %s", list(metadata_variant.keys()))
 
         commit = OSTree.checksum_from_bytes_v(checksum_variant)
 

@@ -5,17 +5,11 @@ REPO_DIR=$CURRENT_DIR/repo
 BUILD_DIR=$CURRENT_DIR/build
 
 
-GPG_HOMEDIR=$CURRENT_DIR/../gpg/verifying
-GPG_KEY_ID="verification@ostree.com"
+GPG_HOMEDIR=$CURRENT_DIR/../gpg/upload
+GPG_KEY_ID="uploader@example.com"
 
 echo "GPG Homedir: $GPG_HOMEDIR"
 echo "GPG Key: $GPG_KEY_ID"
-
-# Get the ID of the key with which to sign
-SIGNING_KEY=$(gpg --homedir $GPG_HOMEDIR --list-secret-keys | \
-              grep -A1 ^sec | \
-              tail -1 |  \
-              tr -d '[:space:]')
 
 rm -rf "$REPO_DIR" "$BUILD_DIR"
 

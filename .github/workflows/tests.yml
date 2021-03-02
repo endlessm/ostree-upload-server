@@ -1,0 +1,44 @@
+on:
+  - push
+
+jobs:
+  tests:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-18.04
+          - ubuntu-20.04
+    runs-on: ${{ matrix.os }}
+    name: Run tests
+    steps:
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gir1.2-ostree-1.0 \
+            gpg \
+            flatpak \
+            ostree \
+            python3-gi \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Python dependencies
+        run: |
+          python3 -m pip install -r requirements-test.txt
+        env:
+          # On older debian and ubuntu when pip is run unprivileged it
+          # ignores installed packages. But we want that so we don't
+          # need to rebuild PyGObject. Since there's no CLI option to
+          # disable this, use the environment variable.
+          #
+          # https://github.com/pypa/pip/issues/4222
+          PIP_IGNORE_INSTALLED: 0
+      - name: Lint
+        run: |
+          python3 -m flake8
+      - name: Tests
+        run: |
+          python3 -m pytest

@@ -18,7 +18,7 @@
 
 import errno
 import fcntl
-from itertools import imap
+
 import logging
 import os
 import time
@@ -27,19 +27,19 @@ logger = logging.getLogger(__name__)
 
 
 class EosOSTreeError(Exception):
-    u"""Errors from the eosostree module"""
+    """Errors from the eosostree module"""
     def __init__(self, *args):
-        self.msg = u' '.join(imap(unicode, args))
+        self.msg = ' '.join(map(str, args))
 
     def __str__(self):
-        return unicode(self.msg)
+        return str(self.msg)
 
 
 class RepoLock(object):
     # Repo lock file name. This intentionally chosen to be different
     # than the name used in the upstream locking work ($repo/lock) so
     # that deadlocks aren't introduced when that's landed and deployed.
-    LOCK_FILE = u'.eoslock'
+    LOCK_FILE = '.eoslock'
 
     # Wait 30 minutes until locking timeout by default.
     LOCK_TIMEOUT = 30 * 60
@@ -51,7 +51,7 @@ class RepoLock(object):
         self._lock_file = None
 
     def __enter__(self):
-        u"""Context manager for lock()"""
+        """Context manager for lock()"""
         self._open()
         self._lock()
 
@@ -61,8 +61,8 @@ class RepoLock(object):
 
     def _open(self):
         lock_path = os.path.join(self._repo_path, self.LOCK_FILE)
-        logger.info(u'Opening lock file %s', lock_path)
-        self._lock_file = open(lock_path, u'w')
+        logger.info('Opening lock file %s', lock_path)
+        self._lock_file = open(lock_path, 'w')
 
     def _close(self):
         if self._lock_file is not None:
@@ -73,7 +73,7 @@ class RepoLock(object):
         self._close()
 
     def _lock(self):
-        u"""Acquire a flock on the repository
+        """Acquire a flock on the repository
 
         Takes a flock on the repository lock file. By default the lock
         is shared. An exclusive lock can be acquired by setting exclusive
@@ -82,8 +82,8 @@ class RepoLock(object):
         indefinitely.
         """
         lock_path = self._lock_file.name
-        logger.info(u'Locking file %s %s', lock_path,
-                    u'exclusive' if self._exclusive else u'shared')
+        logger.info('Locking file %s %s', lock_path,
+                    'exclusive' if self._exclusive else 'shared')
         mode = fcntl.LOCK_EX if self._exclusive else fcntl.LOCK_SH
         lock_fd = self._lock_file.fileno()
         if self._timeout is None:
@@ -97,24 +97,24 @@ class RepoLock(object):
                 try:
                     fcntl.flock(lock_fd, mode)
                     break
-                except IOError, err:
+                except IOError as err:
                     if err.errno != errno.EWOULDBLOCK:
                         raise
 
                 # Fail if the timeout has been reached
                 if wait <= 0:
-                    raise EosOSTreeError(u'Could not lock', lock_path,
-                                         u'in', self._timeout, u'seconds')
+                    raise EosOSTreeError('Could not lock', lock_path,
+                                         'in', self._timeout, 'seconds')
 
                 # Try again in 1 second
                 if wait % 30 == 0:
-                    logger.debug(u'Could not acquire lock %s, %d second%s '
-                                 u'until timeout', lock_path, wait,
-                                 u's' if wait > 1 else u'')
+                    logger.debug('Could not acquire lock %s, %d second%s '
+                                 'until timeout', lock_path, wait,
+                                 's' if wait > 1 else '')
                 wait -= 1
                 time.sleep(1)
 
     def _unlock(self):
-        u"""Remove the repository flock"""
-        logger.info(u'Unlocking file %s', self._lock_file.name)
+        """Remove the repository flock"""
+        logger.info('Unlocking file %s', self._lock_file.name)
         fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)

@@ -11,10 +11,9 @@ class WorkerPoolExecutor:
         self._callback = callback
 
         self._workers = []
-
-    def start(self, task_queue, worker_count=DEFAULT_WORKER_COUNT):
         self._exit_event = Event()
 
+    def start(self, task_queue, worker_count=DEFAULT_WORKER_COUNT):
         for _ in range(worker_count):
             worker = Greenlet.spawn(self._work,
                                     task_queue.queue,
@@ -46,4 +45,5 @@ class WorkerPoolExecutor:
             except queue.Empty:
                 pass
 
-        logging.info("Worker shutdown, {} items processed".format(processed_count))
+        logging.info("Worker shutdown, {} items processed"
+                     .format(processed_count))

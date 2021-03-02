@@ -1,5 +1,6 @@
 venv/
-repo/
 
+__pycache__/
+.pytest_cache/
 .*.sw[po]
 *.pyc

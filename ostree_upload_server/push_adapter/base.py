@@ -1,8 +1,7 @@
 from abc import ABCMeta, abstractmethod
 
-class BasePushAdapter():
-    __metaclass__ = ABCMeta
 
+class BasePushAdapter(metaclass=ABCMeta):
     def __init__(self, name):
         self._name = name
 
@@ -11,4 +10,5 @@ class BasePushAdapter():
 
     @abstractmethod
     def push(self, bundle):
-        raise Error('Cannot invoke BasePushAdapter.push() method!')
+        raise NotImplementedError(
+            'Cannot invoke BasePushAdapter.push() method!')

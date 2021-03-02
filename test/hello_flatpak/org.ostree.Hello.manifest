@@ -1,7 +1,7 @@
 {
     "app-id": "org.ostree.Hello",
     "runtime": "org.freedesktop.Platform",
-    "runtime-version": "1.6",
+    "runtime-version": "20.08",
     "sdk": "org.freedesktop.Sdk",
     "command": "start.sh",
     "modules": [

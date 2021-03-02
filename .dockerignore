@@ -1,7 +1,10 @@
 .git/
 
 venv/
+main-repo/
 repo/
 
+__pycache__/
+.pytest_cache/
 .*.swp
 *.pyc

@@ -1,9 +1,0 @@
-[defaults]
-; location for gpg keyrings
-gpg_homedir=/gpg
-
-; trusted public keys for received flatpaks, empty for no signature check
-keyring=eos-flatpak-keyring.gpg
-
-; key id for signing received flatpaks, empty for no signing
-sign_key=

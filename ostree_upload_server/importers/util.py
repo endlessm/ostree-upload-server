@@ -5,9 +5,9 @@ import subprocess
 
 import gi
 gi.require_version('OSTree', '1.0')
-from gi.repository import GLib, Gio, OSTree
-# Indices into the commit gvariant tuple
+from gi.repository import GLib, Gio, OSTree  # noqa: E402
 
+# Indices into the commit gvariant tuple
 COMMIT_SUBJECT_INDEX = 3
 COMMIT_BODY_INDEX = 4
 COMMIT_TREE_CONTENT_CHECKSUM_INDEX = 6
@@ -23,6 +23,13 @@ if not hasattr(OSTree, 'COMMIT_META_KEY_COLLECTION_BINDING'):
     OSTree.COMMIT_META_KEY_COLLECTION_BINDING = 'ostree.collection-binding'
 if not hasattr(OSTree, 'COMMIT_META_KEY_REF_BINDING'):
     OSTree.COMMIT_META_KEY_REF_BINDING = 'ostree.ref-binding'
+
+# In OSTree 2019.2 RepoResolveRevExtFlags changed from an enum to a
+# bitfield in the GIR. Use the newer bitfield attribute and provide it
+# on older releases.
+if not hasattr(OSTree.RepoResolveRevExtFlags, 'NONE'):
+    OSTree.RepoResolveRevExtFlags.NONE = \
+        OSTree.RepoResolveRevExtFlags.REPO_RESOLVE_REV_EXT_NONE
 
 
 # FIXME: Remove this when P2P bindings are no longer experimental
@@ -46,6 +53,7 @@ def get_collection_id(repo):
             raise
 
     return collection_id
+
 
 def copy_commit(repo, src_rev, dest_ref):
     """Copy commit src_rev to dest_ref
@@ -71,7 +79,7 @@ def copy_commit(repo, src_rev, dest_ref):
     # commit's parent
     _, dest_parent = repo.resolve_rev_ext(
         dest_ref, allow_noent=True,
-        flags=OSTree.RepoResolveRevExtFlags.REPO_RESOLVE_REV_EXT_NONE)
+        flags=OSTree.RepoResolveRevExtFlags.NONE)
     if dest_parent is not None:
         logging.info('Using %s as new commit parent', dest_parent)
 
@@ -135,6 +143,7 @@ def copy_commit(repo, src_rev, dest_ref):
 
     return dest_checksum
 
+
 def open_repository(repo_path):
     # Open repository
     repo_file = Gio.File.new_for_path(repo_path)
@@ -153,6 +162,7 @@ def open_repository(repo_path):
         repo.create(OSTree.RepoMode.ARCHIVE_Z2)
 
     return repo
+
 
 def verify_commit_sig(repo, commit, gpg_homedir, keyring):
     # Verify gpg signature
@@ -175,6 +185,7 @@ def verify_commit_sig(repo, commit, gpg_homedir, keyring):
     else:
         raise Exception("Bundle does not have valid signature!")
 
+
 # Update the repo metadata (summary, appstream, etc), but no
 # pruning or delta generation to make it fast
 def update_repo_metadata(repository_path, gpg_homedir, sign_key):
@@ -189,6 +200,7 @@ def update_repo_metadata(repository_path, gpg_homedir, sign_key):
     logging.debug('Executing %s', ' '.join(cmd))
 
     subprocess.check_call(cmd)
+
 
 def find_repo(start_path):
     refs_suffix = os.path.join('refs', 'heads')
@@ -206,6 +218,7 @@ def find_repo(start_path):
         return os.path.join(start_path, first_level_path)
 
     raise RuntimeError("Repo did not have the expected layout!")
+
 
 def get_metadata_contents(repo, rev):
     """Read the contents of the commit's metadata file"""
@@ -225,4 +238,4 @@ def get_metadata_contents(repo, rev):
     metadata_stream = metadata_file.read()
     metadata_bytes = metadata_stream.read_bytes(metadata_size)
 
-    return metadata_bytes.get_data()
+    return metadata_bytes.get_data().decode('utf-8')
