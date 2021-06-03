@@ -1,4 +1,5 @@
-Flask
+# Limit flask to the 1.0 series until 2.0 has some time to mature.
+Flask ~= 1.0
 Flask-API
 gevent
 passlib
