@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM debian:buster-slim
 MAINTAINER Endless Services Team <services@endlessm.com>
 LABEL version="0.1"
 
