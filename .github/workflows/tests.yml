@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v2
       - name: Python dependencies
         run: |
-          python3 -m pip install -r requirements-test.txt
+          python3 -m pip install -r requirements-test.txt --only-binary cffi
         env:
           # On older debian and ubuntu when pip is run unprivileged it
           # ignores installed packages. But we want that so we don't

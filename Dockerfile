@@ -20,7 +20,7 @@ RUN mkdir -p $INSTALL_DIR
 WORKDIR $INSTALL_DIR
 COPY requirements.txt $INSTALL_DIR
 
-RUN pip3 install --no-cache-dir -r $INSTALL_DIR/requirements.txt
+RUN pip3 install --no-cache-dir -r $INSTALL_DIR/requirements.txt --only-binary cffi
 
 EXPOSE 5000
 
