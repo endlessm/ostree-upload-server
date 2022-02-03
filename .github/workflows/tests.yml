@@ -19,6 +19,7 @@ jobs:
             gpg \
             flatpak \
             ostree \
+            python3-cairo \
             python3-gi \
             python3-pip \
             python3-setuptools \

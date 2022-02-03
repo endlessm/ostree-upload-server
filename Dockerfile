@@ -8,6 +8,7 @@ RUN apt-get update && \
         flatpak \
         ostree \
         python3 \
+        python3-cairo \
         python3-gi \
         python3-pip \
         && \
