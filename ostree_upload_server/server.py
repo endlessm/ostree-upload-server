@@ -18,7 +18,6 @@ from gevent import subprocess
 from gevent.pywsgi import WSGIServer
 
 from flask import Flask, json, jsonify, request, Response, url_for
-from flask_api import status
 
 from ostree_upload_server.authenticator import Authenticator
 from ostree_upload_server.push_adapter.dummy import DummyPushAdapter
@@ -222,7 +221,7 @@ class UploadWebApp(Flask):
     @staticmethod
     def build_response(status_code, message, **kwargs):
         body = {
-            'success': status.is_success(status_code),
+            'success': (status_code >= 200 and status_code < 300),
             'message': message,
         }
         body.update(kwargs)
