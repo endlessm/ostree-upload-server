@@ -60,7 +60,29 @@ class TarImporter(BaseImporter):
             logging.info('Extracting \'%s\' to a temp dir in %s...',
                          self._src_path, dest_path)
             with tarfile.open(self._src_path) as tar_archive:
-                tar_archive.extractall(path=dest_path)
+                
+                import os
+                
+                def is_within_directory(directory, target):
+                    
+                    abs_directory = os.path.abspath(directory)
+                    abs_target = os.path.abspath(target)
+                
+                    prefix = os.path.commonprefix([abs_directory, abs_target])
+                    
+                    return prefix == abs_directory
+                
+                def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+                
+                    for member in tar.getmembers():
+                        member_path = os.path.join(path, member.name)
+                        if not is_within_directory(path, member_path):
+                            raise Exception("Attempted Path Traversal in Tar File")
+                
+                    tar.extractall(path, members, numeric_owner=numeric_owner) 
+                    
+                
+                safe_extract(tar_archive, path=dest_path)
 
             self._source_repo_path = find_repo(dest_path)
             source_repo = open_repository(self._source_repo_path)
